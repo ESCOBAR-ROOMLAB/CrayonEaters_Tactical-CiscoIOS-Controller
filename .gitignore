@@ -1,0 +1,8 @@
+# IOS image repository — contains large binary files
+ios_repository/
+
+# Python cache files
+__pycache__/
+
+# Temporary files
+cancel_transfer_TEMP.py

@@ -1,0 +1,55 @@
+MAIN GOAL
+---------
+
+To have an EXCEL document that lists all the network devices in our LAN / CAMPUS network (in a scenario where a network controller like DNAC is not possible to deploy) and their IOS version (current and optimal). We will leverage the device's REST API to check the current version and then compare it against the recommended one.
+
+
+Objective 1 COMPLETE
+-----------
+* Read the data from the EXCEL file (IP address and IOS recommended version hardcoded) and convert it to a DataFrame, from the specified sheet. Filter only rows that have Hostname, IP Address and Model. 
+	
+	- If the model des not have a folder with image, we will still leave it on the DataFrame, but on the GUI it will not populate
+	for elegible devices to update
+
+	- If there is no recommended IOS version value, we will still leave it on the DataFrame so we can at least retrieve the current
+	version, status, ... but it will not show on the elegible devices in the GUI
+
+* Enable SCP and RESTCONF via NETMIKO
+
+* Retrieve the current IOS version of each device via an API call and populate the Current IOS Version column with the retrieved value
+
+
+Objective 2
+-----------
+* For the rows (devices) with a recommended version value, search in the folder of the device model if the recommended IOS image for it exists, and if so, create a column in the DataFrame with the absolute path of the file. If it does not exists, put NOT_PRESENT as the value.
+
+* Verify available flash memory on each device
+
+* Verify SCP enabled on all ONLINE devices
+
+* Remove all unused files
+
+* For devices with 
+	- enough free memory
+	- online
+	- existent ios recommended file path
+	- need update is YES
+	- SCP enabled
+
+--> SCP the file to each device's flash memory with Threading/ 
+
+
+Objective 3
+-----------
+* How to cancel all jobs and remove the malcopied file from the flash:
+The idea — when the user hits cancel, you send clear line vty * to each device via a separate SSH connection (using paramiko or netmiko), which terminates the active SCP session on the device side, causing scp.put() to fail with an exception on the Python side. That exception is caught by the "except Exception as e block" in "transfer_ios_image" and returns 'TRANSFER_ERROR', cleanly exiting the thread.
+
+The only risk is that clear line vty * will also kill any other active VTY sessions on those devices — not just the SCP one. In a lab that's probably fine, but worth being aware of in production.
+
+
+Objective 4
+-----------
+* Discard failed devices on file transfer
+
+* Verify the MD5 hash
+

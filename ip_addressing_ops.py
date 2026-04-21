@@ -1,9 +1,6 @@
 # Standard library module for parsing and validating IP addresses
 import ipaddress
 
-# Local helper module; provides utility functions such as get_absolute_path()
-import common_helper_functions
-
 # Standard library module for writing structured log messages (INFO, ERROR, etc.)
 import logging
 
@@ -17,7 +14,7 @@ from logging.handlers import RotatingFileHandler
 # -------------
 logger = logging.getLogger(__name__) # use the module's name as the name in the logs
 logger.setLevel(logging.INFO) # set the logging level
-log_file_path = common_helper_functions.get_absolute_path('execution_logs.log') # define the logging file path
+log_file_path = 'execution_logs.log' # define the logging file path
 
 # Use RotatingFileHandler
 # log_file_path = the absolute path for the log file

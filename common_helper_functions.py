@@ -9,34 +9,39 @@ import sys
 
 ###################################################################################################################################
 
-# GET ABSOULTE PATH FOR FILES
-# ---------------------------
-def get_absolute_path(filename):
+# HELPER FUNCTION: GET THE RIGHT PATH FOR FILES
+# ---------------------------------------------
+# def alternate_get_absolute_path(file_name):
 
-    """
-    PURPOSE
-    -------
-    Returns the absolute path of a file relative to the directory where the script 
-    or compiled executable is located. Handles both normal Python execution and 
-    PyInstaller compiled executables.
+#     """Returns the absolute path for the file argumented"""
 
-    ARGUMENTS
-    ---------
-    filename (str): The filename or relative path to resolve.
-
-    RETURNS
-    -------
-    str: The absolute path of the file.
-    """
+#     if getattr(sys, 'frozen', False):
+#         # If the application is run as a bundle (e.g., by PyInstaller)
+#         BASE_PATH = os.path.dirname(sys.executable)
+#     else:
+#         # If running as a normal .py script
+#         BASE_PATH = os.path.dirname(os.path.abspath(__file__))
     
-    if getattr(sys, 'frozen', False):
-        # Running as a PyInstaller compiled executable
-        base_directory = os.path.dirname(sys.executable)
-    else:
-        # Running as a normal Python script
-        base_directory = os.path.dirname(os.path.abspath(__file__))
+#     file_absolute_path = os.path.join(BASE_PATH, file_name)
+#     return file_absolute_path
+
+
+def get_absolute_path(relative_path):
+    """
+    Get the absolute path to a resource, works for both development and
+    for a PyInstaller bundled application.
+    """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        # This is the base path to where your assets are bundled.
+        base_path = sys._MEIPASS
+    except Exception:
+        # If _MEIPASS is not defined, we are in development mode.
+        # The base path is just the directory of the main script.
+        base_path = os.path.dirname(os.path.abspath(__file__))
+
+    return os.path.join(base_path, relative_path)
     
-    return os.path.join(base_directory, filename)
 
 
 # NORMALIZE STRINGS

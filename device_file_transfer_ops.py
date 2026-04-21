@@ -1,6 +1,9 @@
 # Third-party library for SSH connections and SFTP file transfers over SSH
 import paramiko
 
+# Third-party library for error handling of Paramiko
+import paramiko.ssh_exception
+
 # Standard library to perform operations with files and folders
 import os
 
@@ -8,9 +11,6 @@ import os
 from scp import SCPClient
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# Local helper module; provides utility functions such as get_absolute_path()
-import common_helper_functions
 
 # Standard library module for writing structured log messages (INFO, ERROR, etc.)
 import logging
@@ -24,7 +24,7 @@ from logging.handlers import RotatingFileHandler
 # -------------
 logger = logging.getLogger(__name__) # use the module's name as the name in the logs
 logger.setLevel(logging.INFO) # set the logging level
-log_file_path = common_helper_functions.get_absolute_path('execution_logs.log') # define the logging file path
+log_file_path = 'execution_logs.log' # define the logging file path
 
 # Use RotatingFileHandler
 # log_file_path = the absolute path for the log file
@@ -45,7 +45,8 @@ logger.addHandler(handler)
 
 # DEFINE THE FILE TRANSFER METHOD
 # -------------------------------
-def transfer_ios_image(ip, username, password, local_image_path, remote_filename):
+def single_transfer_ios_image(ip, username, password, local_image_path, remote_filename):
+
     """
     PURPOSE
     -------
@@ -64,8 +65,7 @@ def transfer_ios_image(ip, username, password, local_image_path, remote_filename
 
     RETURN VALUE
     ------------
-    str: 'SUCCESS' on success, 'CONNECTION_ERROR', 'TRANSFER_ERROR',
-         or 'UNEXPECTED_ERROR' on failure.
+    str: 'SUCCESS' on success, 'FAILED' on failure.
     """
     
     # Callback invoked by SCPClient on each chunk sent — updates the terminal progress bar in place
@@ -83,29 +83,30 @@ def transfer_ios_image(ip, username, password, local_image_path, remote_filename
     ssh = paramiko.SSHClient()
 
 
-     ### <=== ESTABLISH SSH SESSION ===> ###
+    ### <=== ESTABLISH SSH SESSION ===> ###
     try:
         # Disable Pageant/SSH agent and key file lookup — go straight to password authentication
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh.connect(ip, port=22, username=username, password=password, allow_agent=False, look_for_keys=False)
 
+    # This errors are rarely going to happen, because the devices have been checked toroughly beforehand
     except paramiko.AuthenticationException:
         #------------------------------------------------------------------------------------
         logger.error(f"Transfer to {ip} failed: authentication rejected — check credentials")
         #------------------------------------------------------------------------------------
-        return 'CONNECTION_ERROR'
+        return 'FAILED'
 
-    except paramiko.NoValidConnectionsError:
+    except paramiko.ssh_exception.NoValidConnectionsError:
         #--------------------------------------------------------------------------------------------------
         logger.error(f"Transfer to {ip} failed: could not connect — device unreachable or SSH not enabled")
         #--------------------------------------------------------------------------------------------------
-        return 'CONNECTION_ERROR'
+        return 'FAILED'
 
     except Exception as e:
         #--------------------------------------------------------------------------
         logger.error(f"Transfer to {ip} failed: unexpected connection error — {e}")
         #--------------------------------------------------------------------------
-        return 'UNEXPECTED_ERROR'
+        return 'FAILED'
 
 
     ### <=== SCP THE FILE ===> ###
@@ -125,7 +126,7 @@ def transfer_ios_image(ip, username, password, local_image_path, remote_filename
         #-----------------------------------------------------------------
         logger.error(f"Transfer to {ip} failed: SCP transfer error — {e}")
         #-----------------------------------------------------------------
-        return 'TRANSFER_ERROR'
+        return 'FAILED'
 
     finally:
         ssh.close()
@@ -133,7 +134,7 @@ def transfer_ios_image(ip, username, password, local_image_path, remote_filename
 
 # EXECUTE THE FILE TRANSFER TO MULTIPLE DEVICES
 # ---------------------------------------------
-def transfer_ios_image_all(selected_devices_df, username, password):
+def threaded_transfer_ios_image_all(selected_devices_df, username, password):
 
     """
     PURPOSE
@@ -151,25 +152,31 @@ def transfer_ios_image_all(selected_devices_df, username, password):
 
     RETURN VALUE
     ------------
-    None - logs the result of each transfer.
+    Dict of {index: result} — one entry per device, where index is the original
+    DataFrame index and result is the return code from single_transfer_ios_image.
+    Devices that raised an unexpected thread exception are mapped to 'UNEXPECTED_ERROR'.
     """
 
     with ThreadPoolExecutor(max_workers=10) as executor:
 
         futures = {
             executor.submit(
-                transfer_ios_image,
+                single_transfer_ios_image,
                 row['OOBM IP Address'],
                 username,
                 password,
                 row['IOS Image Path'],
                 os.path.basename(row['IOS Image Path'])
-            ): row['Hostname']
-            for _, row in selected_devices_df.iterrows()
+            ): {'index': idx, 'hostname': row['Hostname']}
+            for idx, row in selected_devices_df.iterrows()
         }
+
+        results = {}
+
         # Process results as each transfer completes — as_completed() returns futures in completion order               
         for future in as_completed(futures):
-            hostname = futures[future]
+            idx      = futures[future]['index']
+            hostname = futures[future]['hostname']
             try:
                 result = future.result()
                 if result == 'SUCCESS':
@@ -184,3 +191,8 @@ def transfer_ios_image_all(selected_devices_df, username, password):
                 #---------------------------------------------------------
                 logger.error(f"{hostname} - unexpected thread error: {e}")
                 #---------------------------------------------------------
+                result = 'FAILED'
+
+            results[idx] = result
+
+    return results

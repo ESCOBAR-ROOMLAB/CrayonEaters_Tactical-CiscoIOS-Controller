@@ -6,3 +6,13 @@ __pycache__/
 
 # Temporary files
 cancel_transfer_TEMP.py
+
+# Documentation not relevant
+documentation/
+
+# VS-Code Workspace
+ CrayonEaters_Tactical-CiscoIOS-Updater.code-workspace
+
+# Avoid ignoring IOS Image repository and subfolders, but we will ignore image files
+ios_repository/**
+!ios_repository/*/

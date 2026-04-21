@@ -19,7 +19,7 @@ Objective 1 COMPLETE
 * Retrieve the current IOS version of each device via an API call and populate the Current IOS Version column with the retrieved value
 
 
-Objective 2
+Objective 2 COMPLETE
 -----------
 * For the rows (devices) with a recommended version value, search in the folder of the device model if the recommended IOS image for it exists, and if so, create a column in the DataFrame with the absolute path of the file. If it does not exists, put NOT_PRESENT as the value.
 
@@ -39,7 +39,7 @@ Objective 2
 --> SCP the file to each device's flash memory with Threading/ 
 
 
-Objective 3
+Objective 3 COMPLETE
 -----------
 * How to cancel all jobs and remove the malcopied file from the flash:
 The idea — when the user hits cancel, you send clear line vty * to each device via a separate SSH connection (using paramiko or netmiko), which terminates the active SCP session on the device side, causing scp.put() to fail with an exception on the Python side. That exception is caught by the "except Exception as e block" in "transfer_ios_image" and returns 'TRANSFER_ERROR', cleanly exiting the thread.
@@ -51,5 +51,7 @@ Objective 4
 -----------
 * Discard failed devices on file transfer
 
-* Verify the MD5 hash
+* Update EXCEL and DataFrame with TRANFER STATUS Column
+
+* Verify the hash when doing install add....
 

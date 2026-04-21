@@ -15,7 +15,7 @@ ios_repository/C8KV/*
 !ios_repository/C8KV/.gitignore
 
 ios_repository/C9200/*
-!ios_repository/9200/.gitignore
+!ios_repository/C9200/.gitignore
 
 ios_repository/PacStar444/*
 !ios_repository/PacStar444/.gitignore

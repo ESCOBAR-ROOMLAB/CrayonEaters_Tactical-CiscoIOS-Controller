@@ -11,26 +11,30 @@ import sys
 
 # HELPER FUNCTION: GET THE RIGHT PATH FOR FILES
 # ---------------------------------------------
-# def alternate_get_absolute_path(file_name):
-
-#     """Returns the absolute path for the file argumented"""
-
-#     if getattr(sys, 'frozen', False):
-#         # If the application is run as a bundle (e.g., by PyInstaller)
-#         BASE_PATH = os.path.dirname(sys.executable)
-#     else:
-#         # If running as a normal .py script
-#         BASE_PATH = os.path.dirname(os.path.abspath(__file__))
-    
-#     file_absolute_path = os.path.join(BASE_PATH, file_name)
-#     return file_absolute_path
-
-
 def get_absolute_path(relative_path):
+
     """
+    PURPOSE
+    -------
     Get the absolute path to a resource, works for both development and
     for a PyInstaller bundled application.
+    
+    In a PyInstaller bundle, the temporary folder path is stored in
+    sys._MEIPASS. If that attribute is not available, the function falls
+    back to the directory of the current script.
+
+
+    ARGUMENTS
+    ---------
+    relative_path (str): The path relative to the application base directory.
+
+
+    RETURN VALUE
+    ------------
+    str: The absolute path formed by joining the base directory with the
+    relative path.
     """
+
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         # This is the base path to where your assets are bundled.
@@ -43,12 +47,28 @@ def get_absolute_path(relative_path):
     return os.path.join(base_path, relative_path)
     
 
-
 # NORMALIZE STRINGS
 # -----------------
 def normalize_ios_version_string(version_str):
+
     """
-    Normalizes a version string by removing leading zeros from each numeric segment.
+    PURPOSE
+    -------
+    Normalize a version string by removing leading zeros from each numeric
+    segment, making version comparisons reliable.
+    
     e.g. '17.15.04c' -> '17.15.4c'
+
+
+    ARGUMENTS
+    ---------
+    version_str (str): The version string to normalize.
+
+
+    RETURN VALUE
+    ------------
+    str: The normalized version string with leading zeros stripped from
+    all numeric parts.
     """
+
     return re.sub(r'\b0+(\d)', r'\1', version_str)

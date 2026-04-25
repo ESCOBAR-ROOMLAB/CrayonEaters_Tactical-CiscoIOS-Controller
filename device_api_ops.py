@@ -7,8 +7,8 @@ import asyncio
 # Standard library module for searching and matching text patterns using regular expressions
 import re
 
-# Local helper module; provides utility functions such as get_absolute_path()
-import common_helper_functions
+# Standard library module to perform operations with time
+import time
 
 # Standard library module for writing structured log messages (INFO, ERROR, etc.)
 import logging
@@ -70,9 +70,9 @@ async def wait_for_restconf(session, host, username, password, semaphore, timeou
     """
 
     url = f"https://{host}/restconf"
-    elapsed = 0
+    deadline = time.monotonic() + timeout  # real wall-clock deadline
 
-    while elapsed < timeout:
+    while time.monotonic() < deadline:
             try:
                 async with semaphore:
                     async with session.get(url, auth=aiohttp.BasicAuth(username, password), ssl=False, timeout=aiohttp.ClientTimeout(total=10)) as response:
@@ -90,9 +90,12 @@ async def wait_for_restconf(session, host, username, password, semaphore, timeou
                 # Request failed — RESTCONF is not ready yet. Swallow the exception and retry
                 pass
 
-            # Wait before the next poll attempt
-            await asyncio.sleep(interval)
-            elapsed += interval
+            # Only sleep if there's still time left — avoids one extra interval overshoot
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            await asyncio.sleep(min(interval, remaining))
+
 
     # Timeout exceeded — RESTCONF never became operative on this device
     #-------------------------------------------------------
@@ -166,7 +169,7 @@ async def get_current_version(session, ip, username, password, semaphore):
     
     RETURN VALUE
     ------------
-    Version string (e.g. '17.13.1a') on success, None on failure.
+    (ip, version_string) tuples in all cases
     """
 
     # RESTCONF endpoint for device hardware operational data — contains the IOS version string
@@ -234,242 +237,34 @@ async def get_all_versions(valid_devices_df, username, password):
     List of (ip, version) tuples. version is None for devices that failed or were unreachable.
     """
 
-    # ssl=False and connector disable built-in SSL verification (equivalent to verify=False)
-    connector = aiohttp.TCPConnector(ssl=False)
-
-    # Allow a maximum of 5 concurrent requests at a time
+    # Semaphore limits concurrent connections to avoid overwhelming devices
     semaphore = asyncio.Semaphore(10)
-
-    async with aiohttp.ClientSession(connector=connector) as session:
-
-        # Build a coroutine for each device
-        tasks = [
-            get_current_version(session, row['OOBM IP Address'], username, password, semaphore)
-            for _, row in valid_devices_df.iterrows()
-        ]
-
-        # Fire all tasks concurrently and wait for all to finish
-        results = await asyncio.gather(*tasks)
-
-    # Return the list of (ip, version) tuples to the caller
-    return results
- 
-
-# GET THE DEVICE'S FLASH MEMORY FREE SPACE
-# ----------------------------------------
-# async def inv_get_flash_free_space(session, ip, username, password, semaphore):
-
-#     """
-#     PURPOSE
-#     -------
-#     Retrieves available flash free space on a device via RESTCONF.
-
-#     ARGUMENTS
-#     ---------
-#     session   (aiohttp.ClientSession): Shared async HTTP session.
-#     ip        (str):                   Device OOBM IP address.
-#     username  (str):                   Device username.
-#     password  (str):                   Device password.
-#     semaphore (asyncio.Semaphore):     Semaphore to control concurrency.
-
-#     RETURN VALUE
-#     ------------
-#     Tuple of (ip, free_bytes) on success, (ip, None) on failure.
-#     """
-
-#     url = f"https://{ip}/restconf/data/Cisco-IOS-XE-platform-software-oper:cisco-platform-software/q-filesystem"
-
-#     headers = {
-#         "Accept": "application/yang-data+json"
-#     }
-
-#     async with semaphore:
-#         try:
-#             async with session.get(url, auth=aiohttp.BasicAuth(username, password), headers=headers, ssl=False) as response:
-
-#                 if response.status == 200:
-#                     data = await response.json(content_type=None)
-#                     filesystems = data.get("Cisco-IOS-XE-platform-software-oper:q-filesystem", [])
-#                     # Temporary debug log to inspect the response structure
-#                     #------------------------------------------------------------
-#                     #logger.info(f"Filesystems response for {ip}: {filesystems}")
-#                     #------------------------------------------------------------
-
-#                     # Find the flash: filesystem entry
-#                     for fs in filesystems:
-#                         for partition in fs.get("partitions", []):
-#                             # The flash partition is called bootflash
-#                             if "bootflash" in partition.get("name", "").lower() or "flash" in partition.get("name", "").lower():
-#                                 total = int(partition.get("total-size", 0))
-#                                 used = int(partition.get("used-size", 0))
-#                                 free_bytes = (total - used) * 1024  # values are in KB, so multiply by 1024 to get bytes for the comparison against the image file size.
-#                                 #---------------------------------------------------------------------------
-#                                 #logger.info(f"Flash free space for {ip}: {free_bytes / (1024*1024):.0f} MB")
-#                                 #---------------------------------------------------------------------------
-#                                 return ip, free_bytes
-                        
-#                     # No flash filesystem entry found in the response
-#                     #----------------------------------------------------------------
-#                     logger.warning(f"No flash filesystem found in response for {ip}")
-#                     #----------------------------------------------------------------
-#                     return ip, None
-                
-#                 else:
-#                     #--------------------------------------------------------------------------------------------------------
-#                     logger.error(f"!!! Failed retrieving flash space for {ip}: {response.status}")
-#                     #--------------------------------------------------------------------------------------------------------
-#                     return ip, None
-
-#         except Exception as e:
-#             #--------------------------------------------------------------------------------------------------------
-#             logger.error(f"!!! Exception retrieving flash space for {ip}: {e}")
-#             #--------------------------------------------------------------------------------------------------------
-#             return ip, None
-        
-# # Event Loop
-# async def inv_get_all_flash_free_space(valid_devices_df, username, password):
-#     """
-#     PURPOSE
-#     -------
-#     Concurrently retrieves the available flash free space for all devices
-#     in the DataFrame using async HTTP requests, and stores the results
-#     in the 'Flash Free Space' column.
-
-
-#     ARGUMENTS
-#     ---------
-#     valid_devices_df (pd.DataFrame): DataFrame containing at minimum 'OOBM IP Address' column.
-#     username         (str):          Device username for RESTCONF authentication.
-#     password         (str):          Device password for RESTCONF authentication.
-
-
-#     RETURN VALUE
-#     ------------
-#     List of (ip, free_bytes) tuples, one per device.
-#     free_bytes is None for devices that failed or were unreachable.
-#     """
-
-#     # Create a TCP connector with SSL verification disabled
-#     connector = aiohttp.TCPConnector(ssl=False)
-
-#     # Limit concurrent requests to 10 at a time
-#     semaphore = asyncio.Semaphore(10)
-
-#     async with aiohttp.ClientSession(connector=connector) as session:
-
-#         # Build one coroutine per device row
-#         tasks = [
-#             get_flash_free_space(session, row['OOBM IP Address'], username, password, semaphore)
-#             for _, row in valid_devices_df.iterrows()
-#         ]
-
-#         # Fire all coroutines concurrently and wait for all to complete
-#         results = await asyncio.gather(*tasks)
-
-#     # Return the list of (ip, free_bytes) tuples to the caller
-#     return results
-
-
-# CHECK IF SCP IS ENABLED
-# -----------------------
-async def get_scp_status(session, ip, username, password, semaphore):
-    """
-    PURPOSE
-    -------
-    Checks if SCP server is enabled on a device via RESTCONF.
-
-
-    ARGUMENTS
-    ---------
-    session   (aiohttp.ClientSession): Shared async HTTP session.
-    ip        (str):                   Device OOBM IP address.
-    username  (str):                   Device username.
-    password  (str):                   Device password.
-    semaphore (asyncio.Semaphore):     Semaphore to control concurrency.
-
-
-    RETURN VALUE
-    ------------
-    Tuple of (ip, 'YES') if enabled, (ip, 'NO') if not, (ip, None) on error.
-    """
-
-    url = f"https://{ip}/restconf/data/Cisco-IOS-XE-native:native/ip/scp/server/enable"
-
-    headers = {
-        "Accept": "application/yang-data+json"
-    }
-
-    async with semaphore:
-        try:
-            async with session.get(url, auth=aiohttp.BasicAuth(username, password), headers=headers, ssl=False) as response:
-
-                if response.status == 200:
-                    #--------------------------------------------
-                    logger.info(f"SCP server is enabled on {ip}")
-                    #--------------------------------------------
-                    return ip, 'YES'
-
-                elif response.status == 404:
-                    #---------------------------------------------------
-                    logger.warning(f"SCP server is not enabled on {ip}")
-                    #---------------------------------------------------
-                    #-------------------------------------------------------------------
-                    # The 404 assumption may not always be correct. On some IOS-XE versions/configurations, a 404 could also mean the RESTCONF path itself is wrong 
-                    # or the YANG model isn't supported — not necessarily that SCP is disabled. A device returning 404 for a different reason would be incorrectly
-                    #  marked as 'NO'. So we can consider debugging when we see that SCP is enabled on such device but is being marked as NO
-
-                    logger.debug(f"404 response body for {ip}: {await response.text()}")
-                    #-------------------------------------------------------------------
-                    return ip, 'NO'
-
-                else:
-                    #--------------------------------------------------------------------------
-                    logger.error(f"!!! Failed checking SCP status for {ip}: {response.status}")
-                    #--------------------------------------------------------------------------
-                    return ip, "UNKNOWN"
-
-        except Exception as e:
-            #---------------------------------------------------------------
-            logger.error(f"!!! Exception checking SCP status for {ip}: {e}")
-            #---------------------------------------------------------------
-            return ip, "UNKNOWN"
-
-# Event Loop
-async def get_all_scp_status(valid_devices_df, username, password):
-    """
-    PURPOSE
-    -------
-    Concurrently checks SCP server status for all devices in the DataFrame.
-
-
-    ARGUMENTS
-    ---------
-    valid_devices_df (pd.DataFrame): DataFrame containing at minimum 'OOBM IP Address' column.
-    username         (str):          Device username for RESTCONF authentication.
-    password         (str):          Device password for RESTCONF authentication.
-
-
-    RETURN VALUE
-    ------------
-    List of (ip, scp_status) tuples, one per device.
-    """
-
-    # Create a TCP connector with SSL verification disabled
-    connector = aiohttp.TCPConnector(ssl=False)
-
-    # Limit concurrent requests to 10 at a time
-    semaphore = asyncio.Semaphore(10)
-
-    async with aiohttp.ClientSession(connector=connector) as session:
-
-        # Build one coroutine per device row
-        tasks = [
-            get_scp_status(session, row['OOBM IP Address'], username, password, semaphore)
-            for _, row in valid_devices_df.iterrows()
-        ]
-
-        # Fire all coroutines concurrently and wait for all to complete
-        results = await asyncio.gather(*tasks)
-
-    # Return the list of (ip, scp_status) tuples to the caller
-    return results
+    
+    try:
+        async with aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(ssl=False, limit=10),
+            timeout=aiohttp.ClientTimeout(total=30)
+        ) as session:
+            
+            tasks = []
+            for _, row in valid_devices_df.iterrows():
+                ip = row['OOBM IP Address']
+                task = get_current_version(session, ip, username, password, semaphore)
+                tasks.append(task)
+            
+            # Wait for all tasks to complete, return exceptions as results
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Filter out exceptions and convert to proper format
+            processed_results = []
+            for result in results:
+                if isinstance(result, Exception):
+                    # We can't know the IP for an exception without more context, skip it
+                    continue
+                elif result is not None:
+                    processed_results.append(result)
+            
+            return processed_results
+            
+    except Exception as e:
+        return []

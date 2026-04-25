@@ -1,0 +1,7 @@
+BUG 0001
+--------
+When the SCP transfer is finished, there are a couple commands that need to be pushed to the devices. If a device goes offline
+during this commands push, the whole program will freeze for 15 minutes (the 'read_timeout' value) before raising an error and
+notifying the user via the GUI. The Paramiko TCP socket will be closed in time (just 70 seconds after the loss of connectivity)
+but Netmiko will still try to read the output, resulting in the GUI never getting the error codes in time. The error will be notified 
+on time in the log file.

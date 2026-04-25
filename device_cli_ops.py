@@ -1,20 +1,29 @@
 # Standard library module for thread-safe signaling between threads (used for cancellation)
 import threading
 
+# Standard library module for interacting with the Python interpreter (used here for sys.exit())
+import sys
+
+# Standard library module for low‑level network communication
+import socket
+
+# Standard library module to perform operations with time
+import time
+
 # Standard library module for managing concurrent execution across multiple threads
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Third-party library for SSH connections to network devices and sending CLI commands
 from netmiko import ConnectHandler
 
-# Catch auth failures separately from connectivity failures
-from netmiko.exceptions import NetmikoAuthenticationException
+# Catch auth and timeout failures separately from connectivity failures
+from netmiko.exceptions import NetmikoAuthenticationException, NetmikoTimeoutException
+
+# Catch timeout failures via Paramiko methods
+from paramiko.ssh_exception import SSHException
 
 # Standard library to perform operations with files and folders
 import os
-
-# Standard library module to perform operations with time
-import time
 
 # Standard library module for writing structured log messages (INFO, ERROR, etc.)
 import logging
@@ -131,8 +140,7 @@ def enable_scp_and_restconf_all(valid_devices_df, username, password):
     PURPOSE
     -------
     Concurrently connects to all devices in the DataFrame and temporarily
-    enables RESTCONF, SCP, and HTTPS. Waits 60 seconds after all devices
-    have been configured to allow RESTCONF to become effective.
+    enables RESTCONF, SCP, and HTTPS.
 
 
     ARGUMENTS
@@ -199,8 +207,12 @@ def get_flash_free_space(row, username, password):
     
     RETURN VALUE
     ------------
-    Tuple of (ip, free_mb) where:
-        free_mb : Free space in Bytes (int) or None if unavailable
+    Tuple of (ip, free_bytes, error_code) where:
+        free_bytes : Free space in Bytes (int) or None if unavailable
+        error_code : None on success, or string indicating failure type:
+            - "NO_FLASH_FOUND"      : No flash filesystem found in output
+            - "PARSE_ERROR"         : Could not parse free bytes from output
+            - "UNEXPECTED_ERROR"    : Any other exception
     """
 
     ip = row['OOBM IP Address']
@@ -217,7 +229,7 @@ def get_flash_free_space(row, username, password):
         output = connection.send_command("show file systems")
         connection.disconnect()
 
-        # Intialize the empty list of lines that may contain flash memory information
+        # Initialize the empty list of lines that may contain flash memory information
         flash_candidates = []
 
         # Find flash/bootflash filesystem lines
@@ -234,7 +246,7 @@ def get_flash_free_space(row, username, password):
             #-------------------------------------------------------------------
             logger.warning(f"No flash filesystem found for '{hostname}' ({ip})")
             #-------------------------------------------------------------------
-            return ip, None
+            return ip, None, "NO_FLASH_FOUND"
 
         # Intialize the empty list of lines that actually contain the desired information
         selected_line = None
@@ -257,7 +269,7 @@ def get_flash_free_space(row, username, password):
             #--------------------------------------------------------------------------------------------------------------
             logger.warning(f"Invalid filesystem data for '{hostname}' ({ip}): unexpected format '{selected_line.strip()}'")
             #--------------------------------------------------------------------------------------------------------------
-            return ip, None
+            return ip, None, "PARSE_ERROR"
 
         try:
             # tokens[0] = total size, tokens[1] = free size
@@ -266,19 +278,21 @@ def get_flash_free_space(row, username, password):
             #---------------------------------------------------------------------------------------------
             logger.warning(f"Could not parse free bytes for '{hostname}' ({ip}): token was '{tokens[1]}'")
             #---------------------------------------------------------------------------------------------
-            return ip, None
+            return ip, None, "PARSE_ERROR"
 
         #-------------------------------------------------------------------------------------------------
         logger.info(f"Flash free space for {ip}: {free_bytes} Bytes -- {free_bytes / (1024*1024):.0f} MB")
         #-------------------------------------------------------------------------------------------------
 
-        return ip, free_bytes
+        # Explicitely return a 'None' error code, so that it does not cause a crash on the 'excel_and_data_ops.populate_flash_free_space_column' function,
+        # since is expecting to recieve a tuple of 3 values.
+        return ip, free_bytes, None
 
     except Exception as e:
         #------------------------------------------------------------------------
         logger.warning(f"Failed to get flash space for '{hostname}' ({ip}): {e}")
         #------------------------------------------------------------------------
-        return ip, None
+        return ip, None, 'UNEXPECTED_ERROR'
     
 # Thread pool -- Called by 'populate_flash_free_space_column' from 'excel_and_data_ops'
 def get_flash_free_space_all(valid_devices_df, username, password, max_workers=10):
@@ -333,12 +347,13 @@ def install_ios_image(row, username, password):
     upgrade sequence in a single SSH session:
 
         1. Pushes boot system commands and saves the config.
+
         2. Runs 'install add file bootflash:<bin>' — stages the image on bootflash.
-           Waits for the device prompt (#) to confirm completion, then checks the
-           captured output for 'INSTALL_COMPLETED_INFO' or 'SUCCESS'.
+           Waits for SUCCESS, ERROR, or FAILED in the output to confirm completion.
+
         3. Runs 'install activate' via send_multiline — waits for the reload
-           confirmation prompt, auto-answers 'y', and waits for '--- Starting
-           Activate ---' to confirm the reload sequence has begun.
+           confirmation prompt, auto-answers 'y', and waits for 'Starting Activate'
+           to confirm the reload sequence has begun.
 
     User confirmation is handled upstream by confirm_installs() before this
     function is ever called. Version verification and install commit after the
@@ -347,10 +362,34 @@ def install_ios_image(row, username, password):
 
     ARGUMENTS
     ---------
-    row      (pd.Series): A single DataFrame row containing device information.
+    row      (pd.Series): A single DataFrame row containing at minimum 'OOBM IP Address', 'Hostname', and 'IOS Image Path' columns.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
 
+    DEAD DEVICE DETECTION
+    ---------------------
+    The install add command can legitimately take up to 15 minutes, so read_timeout
+    is set to 900s. However, if the device goes offline mid-command, Paramiko returns
+    empty bytes from recv() rather than raising — causing Netmiko to silently loop
+    until read_timeout expires.
+
+    Two mechanisms are combined to detect dead devices within ~70 seconds instead:
+
+        TCP keepalives (OS level):
+            Configured on the raw socket under Paramiko. After 60s of idle silence
+            the OS sends 3 probe packets at 10s intervals. If all fail, the OS marks
+            the socket as broken (~90s total). On the next recv() Netmiko gets an
+            OSError, which is caught as CONNECT_ERROR.
+
+        Watchdog thread:
+            A daemon thread polls transport.is_active() every 10 seconds. The moment
+            the transport goes inactive (which happens as soon as TCP keepalives fail),
+            the watchdog force-closes the raw socket. This converts Paramiko's silent
+            empty-read loop into an immediate OSError, breaking out of send_command
+            within one 10-second poll interval rather than waiting for read_timeout.
+
+    The watchdog is always stopped via a threading.Event in the finally block,
+    regardless of whether the function succeeds, fails, or raises an exception.
 
     RETURN VALUE
     ------------
@@ -359,7 +398,8 @@ def install_ios_image(row, username, password):
         'INSTALL_TRIGGERED'  — activate confirmed, device is rebooting.
         'ADD_FAILED'         — install add did not complete successfully.
         'ACTIVATE_FAILED'    — install activate returned a FAILED string.
-        'CONNECT_ERROR'      — initial SSH connection or authentication failed.
+        'CONNECT_ERROR'      — SSH connection failed, authentication rejected,
+                               or dead peer detected by TCP keepalive/watchdog.
         'UNEXPECTED_ERROR'   — uncaught exception during any stage.
     """
 
@@ -377,6 +417,132 @@ def install_ios_image(row, username, password):
             session_timeout=900,
             keepalive=60
         )
+
+        ### <=== TCP KEEPALIVE + WATCHDOG THREAD ===> ###
+        # TCP keepalives let the OS detect a dead peer within ~40s (60s idle + 3x10s probes).
+        # However, when the socket dies, Paramiko returns b"" from recv() rather than raising —
+        # so Netmiko keeps looping silently until read_timeout expires (15 min).
+        # The watchdog thread polls transport.is_active() every 10 seconds and force-closes
+        # the socket the moment it goes False, which raises OSError inside Netmiko's recv()
+        # loop and breaks out immediately.
+
+        # Netmiko uses Paramiko under the hood (a Python SSH library). Paramiko wraps a normal TCP socket for the SSH connection. That TCP socket is managed 
+        # by your operating system. When we set sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1), we are telling the operating system:
+
+        ##Hey OS, please monitor this TCP connection for me. If it goes silent for too long, send probe packets to check if the remote side is still alive.##
+
+        # The key thing is: Netmiko and Paramiko don't send the keepalive probes themselves — the OS kernel does it in the background, independently of Python. Netmiko 
+        # doesn't even know it's happening.
+
+        # So the chain is:
+
+        #     connection.remote_conn is the Paramiko Channel object.
+
+        #     .get_transport() gets the underlying Transport object.
+
+        #     .sock is the raw Python socket.socket object.
+
+        # We call setsockopt() on it to configure the OS-level TCP keepalive. The OS starts the keepalive timer (after TCP_KEEPIDLE idle seconds). If probes fail, the OS 
+        # marks the socket as broken. Next time Netmiko tries to recv() data (during send_command), it gets a socket error and raises an exception.
+
+        # When we call setsockopt() on that .sock, we are instructing the operating system to apply the TCP keepalive settings to exactly the TCP 
+        # connection that carries this device's SSH session. No other connections are affected, and we aren't guessing — we're directly accessing 
+        # the socket stored inside the Paramiko Transport that Netmiko is using.
+        try:
+            transport = connection.remote_conn.get_transport()
+            sock = transport.sock
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+            if sys.platform == 'win32':
+                sock.ioctl(0x98000004, (1, 60000, 10000))  # idle=60s, intvl=10s
+                #-----------------------------------------------------------------------
+                logger.debug(f"'{hostname}' ({ip}): TCP keepalive configured (Windows)")
+                #-----------------------------------------------------------------------
+            else:
+                if hasattr(socket, 'TCP_KEEPIDLE'):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE,  60)
+                if hasattr(socket, 'TCP_KEEPINTVL'):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                if hasattr(socket, 'TCP_KEEPCNT'):
+                    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT,    3)
+                #---------------------------------------------------------------------
+                logger.debug(f"'{hostname}' ({ip}): TCP keepalive configured (Linux)")
+                #---------------------------------------------------------------------
+
+        except Exception as keepalive_err:
+            #------------------------------------------------------------------------------------
+            logger.warning(f"'{hostname}' ({ip}): could not set TCP keepalive — {keepalive_err}")
+            #------------------------------------------------------------------------------------
+            transport = None
+            sock = None
+
+
+        # It doesn't matter where we place it within the function — the watchdog runs on a separate daemon thread that monitors independently of whatever 
+        # the main thread is doing. Once _watchdog.start() is called, it keeps polling transport.is_active() every 10 seconds continuously until either 
+        # _stop_watchdog.set() fires in the finally block, or it detects a dead transport and breaks itself. So whether the main thread is currently inside send_config_set, 
+        # save_config, send_command (install add), or send_multiline (install activate) — the watchdog is watching the entire time.
+
+
+        # Start the watchdog — it fires every 10s and closes the socket if the transport dies
+        _stop_watchdog = threading.Event()
+
+        def _transport_watchdog():
+            while not _stop_watchdog.wait(timeout=10):
+                try:
+                    if transport and not transport.is_active():
+                        #--------------------------------------------------------------------------------
+                        logger.warning(f"'{hostname}' ({ip}): transport inactive — force-closing socket")
+                        #--------------------------------------------------------------------------------
+
+                        # Close the Paramiko channel Netmiko is blocking on.
+                        # This raises SSHException / EOFError in the recv() loop immediately.
+                        try:
+                            connection.remote_conn.close()
+                        except Exception:
+                            pass
+
+                        # Shutdown the socket at OS level BEFORE closing it.
+                        # shutdown(SHUT_RDWR) is the critical step — it immediately unblocks
+                        # any recv() sitting in the kernel, raising an OSError right away.
+                        # close() alone only marks the fd for cleanup; the blocked recv()
+                        # keeps waiting until the OS-level timeout (which is what causes the
+                        # 15-minute hang).
+                        if sock:
+                            try:
+                                sock.shutdown(socket.SHUT_RDWR)
+                                #-------------------------------------------------------
+                                logger.warning(f"'{hostname}' ({ip}): socket shut down")
+                                #-------------------------------------------------------
+                            except Exception:
+                                #--------------------------------------------------------------------------------------------
+                                logger.warning(f"'{hostname}' ({ip}): failed to shutting down socket, passing to closing it")
+                                #--------------------------------------------------------------------------------------------
+                                pass
+                            try:
+                                sock.close()
+                                #----------------------------------------------------
+                                logger.warning(f"'{hostname}' ({ip}): socket closed")
+                                #----------------------------------------------------
+                            except Exception:
+                                pass
+
+                        # Tear down the Paramiko transport last.
+                        try:
+                            transport.close()
+                            #----------------------------------------------------------------
+                            logger.warning(f"'{hostname}' ({ip}): Paramiko transport closed")
+                            #----------------------------------------------------------------
+                        except Exception:
+                            pass
+                        
+                        break
+
+                except Exception:
+                    break
+
+        _watchdog = threading.Thread(target=_transport_watchdog, daemon=True)
+        _watchdog.start()
+
 
         ### <=== PUSH BOOT SYSTEM COMMANDS AND SAVE ===> ###
         # Set the boot variable and save before sending the install commands —
@@ -472,11 +638,23 @@ def install_ios_image(row, username, password):
         #---------------------------------------------------------------------------
         return index, 'CONNECT_ERROR'
 
+    except (OSError, EOFError, NetmikoTimeoutException, SSHException) as e:
+        # OSError:                  watchdog force-closed the TCP socket
+        # SSHException:             watchdog called transport.close()
+        # EOFError/Timeout:         other connection loss paths
+        #-------------------------------------------------------------------------
+        logger.error(f"'{hostname}' ({ip}): connection lost during install — {e}")
+        #-------------------------------------------------------------------------
+        return index, 'CONNECT_ERROR'
+
     except Exception as e:
         #-------------------------------------------------------------------------
         logger.error(f"'{hostname}' ({ip}): failed during install sequence — {e}")
         #-------------------------------------------------------------------------
         return index, 'UNEXPECTED_ERROR'
+    
+    finally:
+        _stop_watchdog.set()  # Stop the watchdog thread regardless of outcome
 
 # Thread pool -- Called by 'populate_install_status_column' from 'excel_and_data_ops'
 def install_ios_image_all(confirmed_df, username, password):
@@ -735,7 +913,6 @@ def remove_inactive_ios(row, username, password):
             #------------------------------------------------------------------
             logger.info(f"'{hostname}' ({ip}): no inactive packages to remove")
             #------------------------------------------------------------------
-            connection.disconnect()
             return index, 'NOTHING_TO_CLEAN'
 
         if 'SUCCESS' not in remove_output:
@@ -811,7 +988,7 @@ def remove_inactive_ios_all(valid_devices_df, username, password):
         #----------------------------------------------------------------------
         logger.warning("No INSTALL_TRIGGERED devices found — skipping cleanup")
         #----------------------------------------------------------------------
-        return {}
+        return results
 
     with ThreadPoolExecutor(max_workers=10) as executor:
 
@@ -844,167 +1021,154 @@ def remove_inactive_ios_all(valid_devices_df, username, password):
 
 # CANCEL ALL ACTIVE TRANSFERS
 # ---------------------------
-def cancel_active_transfers(selected_devices_df, username, password):
+def cancel_single_device(row, username, password):
 
     """
     PURPOSE
     -------
-    Cancels active SCP transfers by sending 'clear line vty X' to each device
-    via Netmiko. This terminates the active VTY sessions on the device side,
-    causing the SCP transfer to fail and the transfer threads to exit cleanly.
-    It also deletes the partially tranferred file from the FLASH memory.
+    Connect to one device via Netmiko, clear all VTY lines to terminate any
+    active SCP transfer, then reconnect and delete the partially transferred
+    file from bootflash.
+
+    The global cancel_event must already be set before this function is called
+    (done upstream in the thread‑pool wrapper) to prevent new transfers from
+    starting while the cancellation is in progress.
 
 
     ARGUMENTS
     ---------
-    selected_devices_df (pd.DataFrame): DataFrame containing the devices with active transfers.
+    row      (pd.Series): A single DataFrame row containing at minimum 'OOBM IP Address', 'Hostname', and 'IOS Image Path'.
+    username (str):       Device SSH username.
+    password (str):       Device SSH password.
+
+
+    RETURN VALUE
+    ------------
+    Tuple of (index, result) where result is one of:
+        'SUCCESS'           — VTY lines cleared and file deleted successfully.
+        'VTY_CLEAR_FAILED'  — initial connection or VTY clearing failed.
+        'FILE_DELETE_FAILED'— VTY cleared but file deletion failed.
+        'UNEXPECTED_ERROR'  — uncaught exception during the attempt.
+    """
+
+    ip       = row['OOBM IP Address']
+    hostname = row['Hostname']
+    index    = row.name
+    remote_filename = os.path.basename(row['IOS Image Path'])
+
+    try:
+        # First connection: clear VTY lines
+        connection = ConnectHandler(
+            device_type='cisco_ios',
+            host=ip,
+            username=username,
+            password=password
+        )
+
+        #----------------------------------------------------
+        logger.warning(f"Sending 'clear line vty *' to {ip}")
+        #----------------------------------------------------
+        for vty_line in range(0, 16):
+            connection.send_command(f'clear line vty {vty_line}',
+                                    expect_string=r'#|\[confirm\]')
+            connection.send_command('\n', expect_string=r'#')
+        connection.disconnect()
+        #-----------------------------------------------------
+        logger.warning(f"Active VTY sessions cleared on {ip}")
+        #-----------------------------------------------------
+
+        vty_phase_ok = True   # signal that the first phase succeeded
+
+    except Exception as e:
+        #-----------------------------------------------------------
+        logger.error(f"'{hostname}' ({ip}): VTY clear failed – {e}")
+        #-----------------------------------------------------------
+        return index, 'VTY_CLEAR_FAILED'
+
+    # Only attempt file deletion if VTY clearing succeeded
+    if vty_phase_ok:
+        try:
+            connection = ConnectHandler(
+                device_type='cisco_ios',
+                host=ip,
+                username=username,
+                password=password
+            )
+
+            #---------------------------------------------------------------
+            logger.warning(f"Deleting partially transferred file from {ip}")
+            #---------------------------------------------------------------
+            connection.send_command(f'delete /force bootflash:{remote_filename}')
+            connection.disconnect()
+            #-------------------------------------------------------------
+            logger.warning(f"Partial file deleted from bootflash on {ip}")
+            #-------------------------------------------------------------
+            return index, 'SUCCESS'
+
+        except Exception as e:
+            #---------------------------------------------------------------
+            logger.error(f"'{hostname}' ({ip}): file deletion failed – {e}")
+            #---------------------------------------------------------------
+            return index, 'FILE_DELETE_FAILED'
+
+    return index, 'VTY_CLEAR_FAILED' # fallback
+
+# Thread pool -- Called by 'populate_post_install_columns' from 'excel_and_data_ops'
+def cancel_active_transfers_all(selected_devices_df, username, password):
+
+    """
+    PURPOSE
+    -------
+    Set the global cancel_event to prevent new SCP transfers from starting,
+    then concurrently clear VTY lines and delete partial files on all selected
+    devices using a thread pool.
+
+
+    ARGUMENTS
+    ---------
+    selected_devices_df (pd.DataFrame): DataFrame containing the devices with
+                                        active transfers.
     username            (str):          Device SSH username.
     password            (str):          Device SSH password.
 
 
     RETURN VALUE
     ------------
-    None - logs the result of each cancellation attempt.
+    Dict of {index: result} — one entry per device, where index is the original
+    DataFrame index and result is the return code from cancel_single_device.
+    Devices that raised an unexpected thread exception are mapped to
+    'UNEXPECTED_ERROR'.
     """
 
-    def cancel_single_device(row):
-
-        ip = row['OOBM IP Address']
-        hostname = row['Hostname']
-        remote_filename = os.path.basename(row['IOS Image Path'])
-
-        try:
-            # Connect to the device and send the clear command
-            connection = ConnectHandler(
-                device_type='cisco_ios',
-                host=ip,
-                username=username,
-                password=password
-            )
-
-            #----------------------------------------------------
-            logger.warning(f"Sending 'clear line vty *' to {ip}")
-            #----------------------------------------------------
-            for vty_line in range(0, 16):
-                connection.send_command(f'clear line vty {vty_line}', expect_string=r'#|\[confirm\]')
-                connection.send_command('\n', expect_string=r'#')
-            connection.disconnect()
-            #-----------------------------------------------------
-            logger.warning(f"Active VTY sessions cleared on {ip}")
-            #-----------------------------------------------------
-
-            # Reconnect to delete the partially transferred file from bootflash. This is necessary because clearing VTY lines 
-            # kills all active sessions including potentially your own — so the first connection may be dropped after the clear commands.
-            connection = ConnectHandler(
-                device_type='cisco_ios',
-                host=ip,
-                username=username,
-                password=password
-            )
-
-            #---------------------------------------------------------------
-            logger.warning(f"Deleting partially transferred file from {ip}")
-            #---------------------------------------------------------------
-            connection.send_command(f'delete /force bootflash:{remote_filename}')
-            connection.disconnect()
-            #-------------------------------------------------------------
-            logger.warning(f"Partial file deleted from bootflash on {ip}")
-            #-------------------------------------------------------------
-
-        except Exception as e:
-            #----------------------------------------------------------------------
-            logger.error(f"Failed to clear VTY sessions on {hostname} ({ip}): {e}")
-            #----------------------------------------------------------------------
-
-    # Set the cancellation flag first — prevents new transfers from starting
+    # Prevent any new transfers from starting
     cancel_event.set()
     #---------------------------------------------------------------------------------
     logger.warning("Cancellation requested — clearing VTY sessions on all devices...")
     #---------------------------------------------------------------------------------
 
-    # Fire cancellation commands concurrently to all devices
+    results = {}
     with ThreadPoolExecutor(max_workers=len(selected_devices_df)) as executor:
-        futures = [
-            executor.submit(cancel_single_device, row)
-            for _, row in selected_devices_df.iterrows()
-        ]
+        futures = {
+            executor.submit(cancel_single_device, row, username, password):
+                {'index': idx, 'hostname': row['Hostname']}
+            for idx, row in selected_devices_df.iterrows()
+        }
 
-        # Wait for all cancellation commands to complete
         for future in as_completed(futures):
+            idx      = futures[future]['index']
+            hostname = futures[future]['hostname']
             try:
-                future.result()
+                index, result = future.result()
+                #-----------------------------------------------------
+                logger.info(f"'{hostname}': cancel result — {result}")
+                #-----------------------------------------------------
             except Exception as e:
-                #---------------------------------------------------------
-                logger.error(f"Unexpected error during cancellation: {e}")
-                #---------------------------------------------------------
+                #-----------------------------------------------------------
+                logger.error(f"'{hostname}': unexpected thread error — {e}")
+                #-----------------------------------------------------------
 
-# TEST CANCEL ALL ACTIVE TRANSFERS
-# ---------------------------
-def test_cancel_active_transfers(device_ips, remote_filename, username, password):
+                index  = idx
+                result = 'UNEXPECTED_ERROR'
+            results[index] = result
 
-    def cancel_single_device(ip):
-
-        try:
-            # Connect to the device and send the clear command
-            connection = ConnectHandler(
-                device_type='cisco_ios',
-                host=ip,
-                username=username,
-                password=password
-            )
-
-            #-----------------------------------------------------------------
-            logger.warning(f"Sending 'clear line vty *' to {ip}")
-            #-----------------------------------------------------------------
-            for vty_line in range(0, 16):
-                connection.send_command(f'clear line vty {vty_line}', expect_string=r'#|\[confirm\]')
-                connection.send_command('\n', expect_string=r'#')
-            connection.disconnect()
-            #------------------------------------------------------------------
-            logger.warning(f"Active VTY sessions cleared on {ip}")
-            #------------------------------------------------------------------
-
-            # Reconnect to delete the partially transferred file from bootflash
-            connection = ConnectHandler(
-                device_type='cisco_ios',
-                host=ip,
-                username=username,
-                password=password
-            )
-
-            #---------------------------------------------------------------
-            logger.warning(f"Deleting partially transferred file from {ip}")
-            #---------------------------------------------------------------
-            connection.send_command(f'delete /force bootflash:{remote_filename}')
-            connection.disconnect()
-            #-------------------------------------------------------------
-            logger.warning(f"Partial file deleted from bootflash on {ip}")
-            #-------------------------------------------------------------
-
-        except Exception as e:
-            #---------------------------------------------------------
-            logger.error(f"Failed to clear VTY sessions on {ip}: {e}")
-            #---------------------------------------------------------
-
-    # Set the cancellation flag first — prevents new transfers from starting
-    cancel_event.set()
-    #---------------------------------------------------------------------------------
-    logger.warning("Cancellation requested — clearing VTY sessions on all devices...")
-    #---------------------------------------------------------------------------------
-
-    # Fire cancellation commands concurrently to all devices
-    with ThreadPoolExecutor(max_workers=len(device_ips)) as executor:
-        futures = [
-            executor.submit(cancel_single_device, ip)
-            for ip in device_ips
-        ]
-
-        # Wait for all cancellation commands to complete
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except Exception as e:
-                #---------------------------------------------------------
-                logger.error(f"Unexpected error during cancellation: {e}")
-                #---------------------------------------------------------
-
+    return results

@@ -89,7 +89,7 @@ def single_transfer_ios_image(ip, username, password, local_image_path, remote_f
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         ssh.connect(ip, port=22, username=username, password=password, allow_agent=False, look_for_keys=False)
 
-    # This errors are rarely going to happen, because the devices have been checked toroughly beforehand
+    # This errors are rarely going to happen, because the devices have been checked thoroughly beforehand
     except paramiko.AuthenticationException:
         #------------------------------------------------------------------------------------
         logger.error(f"Transfer to {ip} failed: authentication rejected — check credentials")

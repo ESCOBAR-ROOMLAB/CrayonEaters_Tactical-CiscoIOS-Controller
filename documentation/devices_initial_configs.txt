@@ -1,0 +1,26 @@
+en
+config t
+hostname SW4
+username admin priv 15 secret Taco23%!ab
+!
+crypto key gen rsa label SSH mod 2048
+!
+aaa new-model
+aaa authorization exec default local
+!
+interface GigabitEthernet1/1/1
+ no switchport
+ ip address 10.17.1.16 255.255.255.0
+ no shutdown
+!
+ip routing
+!
+ip route 0.0.0.0 0.0.0.0 10.17.1.1
+!
+line vty 0 4
+ exec-timeout 5 0
+ privilege level 15
+ transport input ssh
+!
+!
+

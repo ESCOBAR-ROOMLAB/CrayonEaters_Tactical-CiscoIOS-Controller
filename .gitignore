@@ -3,9 +3,11 @@ __pycache__/
 
 # Temporary files
 cancel_transfer_TEMP.py
+test.py
 
 # Documentation not relevant
-documentation/
+documentation/Ideas.txt
+documentation/Objectives.txt
 
 # VS-Code Workspace
 CrayonEaters_Tactical-CiscoIOS-Updater.code-workspace

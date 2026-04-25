@@ -36,6 +36,13 @@ logger.addHandler(handler)
 logger.info("STARTING PROGRAM")
 #------------------------------
 
+username = "admin"
+password = 'Taco23%!ab'
+
+# Get the absolute path of the EXCEL file
+excel_file = 'LAN_Network_Devices.xlsx'
+excel_sheet_name = 'LAB_NETAUTO001'
+
 ###################################################################################################################################
 
 # PART 1: VALID DEVICES AND EXCEL UPDATE
@@ -44,13 +51,6 @@ logger.info("STARTING PROGRAM")
 #---------------------------------------------------------------------------
 logger.info("PART 1: Checking Elegible Devices and updating the EXCEL file")
 #---------------------------------------------------------------------------
-
-username = "admin"
-password = 'Taco23%!ab'
-
-# Get the absolute path of the EXCEL file
-excel_file = 'LAN_Network_Devices.xlsx'
-excel_sheet_name = 'LAB_NETAUTO001'
 
 # Check that the EXCEL file is closed before continuing — aborts if file is locked
 excel_and_data_ops.check_excel_file_not_open(excel_file)

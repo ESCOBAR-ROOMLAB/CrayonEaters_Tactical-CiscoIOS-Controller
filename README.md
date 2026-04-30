@@ -14,7 +14,7 @@ of Cisco devices using a combination of RESTCONF (for version retrieval), SSH/CL
 4. [Project Structure](#project-structure)
 5. [Excel Tracker Setup](#excel-tracker-setup)
 6. [IOS Repository Setup](#ios-repository-setup)
-7. [Running the Application](#running-the-application)
+7. [Running the Application with Python](#running-the-application)
 8. [Workflow Reference](#workflow-reference)
 9. [Logging](#logging)
 10. [Bugs & Issues Found](#bugs--issues-found)
@@ -173,7 +173,7 @@ Leading zeros in version segments are handled automatically
 ```
 ios_repository/
 └── C9300/
-    └── cat9k_lite_iosxe.17.15.04c.SPA.bin   ← filename must contain "17.15.4c" or "17.15.04c"
+    └── cat9k_iosxe.17.15.04c.SPA.bin   ← filename must contain "17.15.4c" or "17.15.04c"
 ```
 
 ---
@@ -185,7 +185,7 @@ python program_gui.py
 ```
 
 ### Step-by-step GUI walkthrough
-
+<br/>
 1. **Enter the Excel sheet name** in the text field at the top (e.g. `LAN`).
 <br/>
 <br/>
@@ -257,7 +257,7 @@ Log format:
 
 ---
 
-## Code Review — Bugs & Issues Found
+## Bugs & Issues Found
 
 The following bugs and issues have been identified and are still persistent on the code.
 

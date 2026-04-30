@@ -1,16 +1,28 @@
 # Python cache files
-__pycache__/
+__pycache__/*
+
+# --- PyInstaller Files ---
+# Ignore the directories and files created during the .exe build process
+/dist/
+/build/
+*.spec
+
+# VENV environment
+/.venv/
 
 # Temporary files
 cancel_transfer_TEMP.py
 test.py
+
+# --- The logging file ---
+execution_logs.log
 
 # Documentation not relevant
 documentation/Ideas.txt
 documentation/Objectives.txt
 
 # VS-Code Workspace
-CrayonEaters_Tactical-CiscoIOS-Updater.code-workspace
+CrayonEaters_Tactical-CiscoIOS-Controller.code-workspace
 
 # Avoid ignoring IOS Image repository and subfolders, but we will ignore image files
 ios_repository/C8KV/*
@@ -18,6 +30,21 @@ ios_repository/C8KV/*
 
 ios_repository/C9200/*
 !ios_repository/C9200/.gitignore
+
+ios_repository/C9300/*
+!ios_repository/C9300/.gitignore
+
+ios_repository/CSR1KV/*
+!ios_repository/CSR1KV/.gitignore
+
+ios_repository/IR1835/*
+!ios_repository/IR1835/.gitignore
+
+ios_repository/ISR1121X/*
+!ios_repository/ISR1121X/.gitignore
+
+ios_repository/PacStar443/*
+!ios_repository/PacStar443/.gitignore
 
 ios_repository/PacStar444/*
 !ios_repository/PacStar444/.gitignore

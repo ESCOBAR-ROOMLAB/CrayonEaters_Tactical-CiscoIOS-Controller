@@ -208,7 +208,7 @@ def populate_status_and_auth_status_column(valid_devices_df, username, password)
     """
     PURPOSE
     -------
-    Enables RESTCONF, SCP and HTTPS on all devices and populates the
+    Sends a test command to all devices and populates the
     'Status' column with ONLINE or OFFLINE, and the 'Auth Status' column
     with AUTH_OK, AUTH_BAD, or None based on the result.
 
@@ -237,7 +237,7 @@ def populate_status_and_auth_status_column(valid_devices_df, username, password)
             #-----------------------------------------------------------
             return "NO_DEVICES_ERROR"
         
-        results = device_cli_ops.enable_scp_and_restconf_all(valid_devices_df, username, password)
+        results = device_cli_ops.first_connectivity_check_all(valid_devices_df, username, password)
         
         # Check if we got any results back
         if not results:
@@ -1279,8 +1279,8 @@ def populate_install_status_column(valid_devices_df, install_eligible_devices_df
         ### <=== RECORD ABORTED DEVICES ===> ###
         # Write ABORTED immediately for devices the user declined — these never reach
         # the install function so their status would otherwise remain unpopulated.
-        # for idx in aborted_df.index:
-        #     valid_devices_df.at[idx, 'Install Status'] = 'ABORTED'
+        #for idx in aborted_df.index:
+        #    valid_devices_df.at[idx, 'Install Status'] = 'ABORTED'
             
 
         ### <=== FIRE INSTALLS ON CONFIRMED DEVICES ===> ###
@@ -1390,14 +1390,14 @@ def populate_post_install_columns(valid_devices_df, install_eligible_devices_df,
 
 
         ### <=== POLL RESTCONF TO CHECK IF DEVICES ARE BACK ONLINE ===> ###
-        # Use the existing wait_for_restconf() with a 10 minute timeout and 15 second
+        # Use the existing wait_for_restconf() with a 12 minute timeout and 7 second
         # interval — returns {ip: True/False} for each triggered device.
         #-------------------------------------------------------------------------------------------
-        logger.info("Polling RESTCONF to check if devices are back online (timeout: 10 minutes)...")
+        logger.info("Polling RESTCONF to check if devices are back online (timeout: 12 minutes)...")
         #-------------------------------------------------------------------------------------------
 
         restconf_results = asyncio.run(
-            device_api_ops.get_all_restconf_status(triggered_devices, username, password, 600, 15)
+            device_api_ops.get_all_restconf_status(triggered_devices, username, password, 720, 7)
         )
 
         # Split triggered devices into those that came back up and those that timed out

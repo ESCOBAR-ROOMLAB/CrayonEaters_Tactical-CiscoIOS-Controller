@@ -17,6 +17,11 @@ ip routing
 !
 ip route 0.0.0.0 0.0.0.0 10.17.1.1
 !
+!
+ip scp server enable
+ip http secure-server
+restconf
+!
 line vty 0 4
  exec-timeout 5 0
  privilege level 15

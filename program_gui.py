@@ -1328,7 +1328,7 @@ class MainWindow(QMainWindow):
         """
         
         super().__init__()
-        self.setWindowTitle("Cisco Tactical Updater — CrayonEaters Series")
+        self.setWindowTitle("Cisco Tactical Controller — CrayonEaters Series")
         self.setFixedSize(QSize(860, 610))  # Fixed window dimensions
         self.setStyleSheet(STYLESHEET)
 
@@ -1359,7 +1359,7 @@ class MainWindow(QMainWindow):
         title_block = QVBoxLayout()
         title_block.setSpacing(2)  # Tight spacing between title and subtitle
 
-        title = QLabel("CISCO TACTICAL UPDATER")
+        title = QLabel("CISCO TACTICAL CONTROLLER")
         title.setObjectName("appTitle")  # ID for stylesheet targeting
 
         subtitle = QLabel("CRAYONEATERS SERIES")
@@ -1861,9 +1861,6 @@ class MainWindow(QMainWindow):
             self._device_username,
             self._device_password
         )
-
-        # Disable the button immediately to prevent double‑click
-        self.btn_cancel.setEnabled(False)
 
     ##############################################################
 
@@ -2448,7 +2445,7 @@ class ShowDevicesWorker(QObject):
             QThread.msleep(100)
 
             result = excel_and_data_ops.populate_restconf_status_column(
-                valid_devices_df, self.username, self.password, 180, 15
+                valid_devices_df, self.username, self.password, 30, 7
             )
             
             if result is not None:

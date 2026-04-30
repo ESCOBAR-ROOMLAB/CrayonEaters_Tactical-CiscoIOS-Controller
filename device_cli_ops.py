@@ -64,6 +64,125 @@ cancel_event = threading.Event()
 
 # ENABLE SCP AND RESTCONF ON ALL ONLINE DEVICES
 # ---------------------------------------------
+def first_connectivity_check(row, username, password):
+
+    """
+    PURPOSE
+    -------
+    Connects to a device via Netmiko and runs a test command.
+    Sets the device Status to ONLINE on success, OFFLINE on failure.
+    If authentication fails, marks device as ONLINE with AUTH_BAD auth status.
+
+    ARGUMENTS
+    ---------
+    row      (pd.Series): A single DataFrame row containing device information.
+    username (str):       Device SSH username.
+    password (str):       Device SSH password.
+
+    RETURN VALUE
+    ------------
+    Tuple of (index, status, auth_status) where:
+        status      : 'ONLINE' or 'OFFLINE'
+        auth_status : 'AUTH_OK', 'AUTH_BAD', or None
+    """
+
+    # Define the parameters
+    ip = row['OOBM IP Address']
+    hostname = row['Hostname']
+    index = row.name
+
+    # Open the SSH connection
+    try:
+        connection = ConnectHandler(
+            device_type='cisco_ios',
+            host=ip,
+            username=username,
+            password=password
+        )
+
+        # Define the test command
+        commands = [
+            '!'
+        ]
+
+        # Push the conficommandto the devices
+        connection.send_config_set(commands)
+        connection.disconnect()
+
+        #--------------------------------------------------------------------
+        logger.info(f"Test command sent successfully to '{hostname}' ({ip})")
+        #--------------------------------------------------------------------
+
+        # If it succeded, it means the device is ONLINE and the authentication succeded
+        return index, 'ONLINE', 'AUTH_OK'
+    
+    except NetmikoAuthenticationException:
+        #------------------------------------------------------------------------------------
+        logger.warning(f"Authentication failed on '{hostname}' ({ip}) — device is reachable")
+        #------------------------------------------------------------------------------------
+        # Device responded but rejected credentials — it's ONLINE but AUTH_BAD
+        return index, 'ONLINE', 'AUTH_BAD'
+    
+    except Exception as e:
+        #--------------------------------------------------------------------------
+        logger.warning(f"Device '{hostname}' ({ip}) is unreachable or failed: {e}")
+        #--------------------------------------------------------------------------
+        # If it failed, it means that the device is OFFLINE
+        return index, 'OFFLINE', 'N/A'
+
+# Thread pool -- Called by 'populate_status_and_auth_status_column' from 'excel_and_data_ops'
+def first_connectivity_check_all(valid_devices_df, username, password):
+
+    """
+    PURPOSE
+    -------
+    Concurrently connects to all devices in the DataFrame and runs a test command.
+
+
+    ARGUMENTS
+    ---------
+    valid_devices_df (pd.DataFrame): DataFrame containing at minimum 'OOBM IP Address' and 'Hostname' columns.
+    username         (str):          Device SSH username.
+    password         (str):          Device SSH password.
+
+
+    RETURN VALUE
+    ------------
+    List of (index, status, auth_status) tuples — ONLINE/OFFLINE for status, AUTH_OK/AUTH_BAD/N/A for auth_status.
+    """
+
+    # Submit one configuration task per device — max 10 concurrent connections
+    with ThreadPoolExecutor(max_workers=10) as executor:
+
+        # Build a future for each device, keyed by hostname for result logging
+        futures = {
+            executor.submit(first_connectivity_check, row, username, password): row['Hostname']
+            for _, row in valid_devices_df.iterrows()
+        }
+
+        # Initialize the list that will collect (index, status) tuples
+        results = []
+
+        # Process results as each thread completes — order is not guaranteed
+        for future in as_completed(futures):
+            hostname = futures[future]
+            try:
+                # Unpack the (index, status, auth_status) tuple returned by 'first_connectivity_check'
+                index, status, auth_status = future.result()
+                results.append((index, status, auth_status))
+                #-------------------------------------------------------------------------
+                logger.info(f"'{hostname}' status set to: {status} | auth: {auth_status}")
+                #-------------------------------------------------------------------------
+            except Exception as e:
+                #-------------------------------------------------------------
+                logger.error(f"Unexpected error processing '{hostname}': {e}")
+                #-------------------------------------------------------------
+
+    return results
+
+
+# ENABLE SCP AND RESTCONF ON ALL ONLINE DEVICES
+# ---------------------------------------------
 def enable_scp_and_restconf(row, username, password):
 
     """
@@ -101,7 +220,7 @@ def enable_scp_and_restconf(row, username, password):
             password=password
         )
 
-        # Enable RESTCONF, SCP and HTTPS temporarily — do not save to startup config
+        # Enable RESTCONF, SCP and HTTPS
         commands = [
             'ip http secure-server',
             'ip scp server enable',
@@ -133,7 +252,7 @@ def enable_scp_and_restconf(row, username, password):
         # If it failed, it means that the device is OFFLINE
         return index, 'OFFLINE', 'N/A'
 
-# Thread pool -- Called by 'populate_status_and_auth_status_column' from 'excel_and_data_ops'
+# Thread pool -- Called by ...
 def enable_scp_and_restconf_all(valid_devices_df, username, password):
 
     """
@@ -181,6 +300,136 @@ def enable_scp_and_restconf_all(valid_devices_df, username, password):
                 #-------------------------------------------------------------
                 logger.error(f"Unexpected error processing '{hostname}': {e}")
                 #-------------------------------------------------------------
+
+    return results
+
+
+# DISABLE SCP AND HTTP ON ONLINE, NON-SELECTED DEVICES
+# ----------------------------------------------------
+def disable_scp_and_restconf(row, username, password):
+
+    """
+    PURPOSE
+    -------
+    Connects to a device via Netmiko and disables RESTCONF, SCP, and HTTPS
+    that were temporarily enabled earlier in the workflow. Does NOT save the
+    running config – the changes are lost on reload (which is desired after
+    a successful upgrade) but can be persisted elsewhere if needed.
+
+
+    ARGUMENTS
+    ---------
+    row      (pd.Series): A single DataFrame row containing at minimum
+                          'OOBM IP Address' and 'Hostname'.
+    username (str):       Device SSH username.
+    password (str):       Device SSH password.
+
+
+    RETURN VALUE
+    ------------
+    Tuple of (index, result) where result is one of:
+        'SUCCESS'        — commands were applied successfully.
+        'CONNECT_ERROR'  — SSH connection or authentication failed.
+        'UNEXPECTED_ERROR' — any other unhandled exception.
+    """
+
+    ip       = row['OOBM IP Address']
+    hostname = row['Hostname']
+    index    = row.name
+
+    try:
+        connection = ConnectHandler(
+            device_type='cisco_ios',
+            host=ip,
+            username=username,
+            password=password
+        )
+
+        # Disable the extra services that have been enabled
+        commands = [
+            'no ip scp server enable',
+            'no restconf',
+            'no ip http secure-server'
+        ]
+        #----------------------------------------------------------------
+        logger.warning(f"Disabling HTTPS, RESTCONF and SCP on {ip}")
+        #----------------------------------------------------------------
+        connection.send_config_set(commands)
+
+        #------------------------------------------------------------
+        logger.warning(f"Disabled HTTPS, RESTCONF and SCP on {ip}")
+        #------------------------------------------------------------
+
+        connection.disconnect()
+        return index, 'SUCCESS'
+
+    except NetmikoAuthenticationException:
+        #------------------------------------------------------------------------------------
+        logger.error(f"'{hostname}' ({ip}): authentication failed – cannot disable services")
+        #------------------------------------------------------------------------------------
+        return index, 'CONNECT_ERROR'
+
+    except Exception as e:
+        #---------------------------------------------------------------------
+        logger.error(f"'{hostname}' ({ip}): failed to disable services – {e}")
+        #---------------------------------------------------------------------
+        return index, 'UNEXPECTED_ERROR'
+
+# Thread pool -- Called by ...
+def disable_scp_and_restconf_all(online_authok_devices_df, username, password):
+    
+    """
+    PURPOSE
+    -------
+    Concurrently disables RESTCONF, SCP, and HTTPS on all devices that are
+    online and authenticated, using a thread pool. Returns a dictionary of
+    results that can be used to populate the corresponding column in the
+    DataFrame.
+
+
+    ARGUMENTS
+    ---------
+    online_authok_devices_df (pd.DataFrame): DataFrame containing only devices
+                                            that are ONLINE and AUTH_OK.
+    username                 (str):          Device SSH username.
+    password                 (str):          Device SSH password.
+
+
+    RETURN VALUE
+    ------------
+    Dict of {index: result} — one entry per device, where index is the original
+    DataFrame index and result is the return code from disable_scp_and_restconf.
+    Devices that raised an unexpected thread exception are mapped to
+    'UNEXPECTED_ERROR'.
+    """
+
+    results = {}
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+
+        # Keyed by dict to avoid tuple unpacking ambiguity on the DataFrame index
+        futures = {
+            executor.submit(disable_scp_and_restconf, row, username, password):
+                {'index': idx, 'hostname': row['Hostname']}
+            for idx, row in online_authok_devices_df.iterrows()
+        }
+
+        for future in as_completed(futures):
+            idx      = futures[future]['index']
+            hostname = futures[future]['hostname']
+            try:
+                index, result = future.result()
+                #---------------------------------------------------------
+                logger.info(f"'{hostname}': disable services result — {result}")
+                #---------------------------------------------------------
+            except Exception as e:
+                #-----------------------------------------------------------
+                logger.error(f"'{hostname}': unexpected thread error — {e}")
+                #-----------------------------------------------------------
+                index  = idx
+                result = 'UNEXPECTED_ERROR'
+
+            results[index] = result
 
     return results
 
@@ -295,7 +544,7 @@ def get_flash_free_space(row, username, password):
         return ip, None, 'UNEXPECTED_ERROR'
     
 # Thread pool -- Called by 'populate_flash_free_space_column' from 'excel_and_data_ops'
-def get_flash_free_space_all(valid_devices_df, username, password, max_workers=10):
+def get_flash_free_space_all(valid_devices_df, username, password):
     """
     PURPOSE
     -------
@@ -306,7 +555,6 @@ def get_flash_free_space_all(valid_devices_df, username, password, max_workers=1
     valid_devices_df (pd.DataFrame): Device inventory
     username         (str):          SSH username
     password         (str):          SSH password
-    max_workers      (int):          Thread count
 
     RETURN VALUE
     ------------
@@ -316,7 +564,7 @@ def get_flash_free_space_all(valid_devices_df, username, password, max_workers=1
 
     results = []
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
 
         # Keyed by hostname for result logging — mirrors enable_scp_and_restconf_all pattern
         futures = {
@@ -407,6 +655,9 @@ def install_ios_image(row, username, password):
     ip       = row['OOBM IP Address']
     hostname = row['Hostname']
     bin_file = os.path.basename(row['IOS Image Path'])
+
+    # Initialize the watchdog
+    _stop_watchdog = None
 
     try:
         connection = ConnectHandler(
@@ -654,7 +905,8 @@ def install_ios_image(row, username, password):
         return index, 'UNEXPECTED_ERROR'
     
     finally:
-        _stop_watchdog.set()  # Stop the watchdog thread regardless of outcome
+        if _stop_watchdog is not None:
+            _stop_watchdog.set()  # Stop the watchdog thread regardless of outcome
 
 # Thread pool -- Called by 'populate_install_status_column' from 'excel_and_data_ops'
 def install_ios_image_all(confirmed_df, username, password):
@@ -1095,14 +1347,15 @@ def cancel_single_device(row, username, password):
                 password=password
             )
 
-            #---------------------------------------------------------------
-            logger.warning(f"Deleting partially transferred file from {ip}")
-            #---------------------------------------------------------------
+            # Delete the partially copied IOS image file
             connection.send_command(f'delete /force bootflash:{remote_filename}')
-            connection.disconnect()
             #-------------------------------------------------------------
             logger.warning(f"Partial file deleted from bootflash on {ip}")
             #-------------------------------------------------------------
+
+            # Close the connection
+            connection.disconnect()
+            
             return index, 'SUCCESS'
 
         except Exception as e:

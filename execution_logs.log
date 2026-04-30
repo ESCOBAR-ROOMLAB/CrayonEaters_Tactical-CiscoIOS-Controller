@@ -10228,3 +10228,198 @@ Performing Activate on all members
 2026-04-25 16:10:20,480 - device_cli_ops - INFO - 'SW4': cleanup result — CLEANED
 2026-04-25 16:10:20,531 - excel_and_data_ops - INFO - Updating EXCEL file succeded
 2026-04-25 16:10:20,531 - excel_and_data_ops - INFO - The EXCEL file has been closed by the program
+2026-05-01 00:59:57,390 - __main__ - INFO - STARTING PROGRAM
+2026-05-01 01:01:53,240 - __main__ - INFO - STARTING PROGRAM
+2026-05-01 01:18:57,039 - __main__ - INFO - SHOW ELIGIBLE DEVICES clicked
+2026-05-01 01:19:11,253 - excel_and_data_ops - ERROR - EXCEL file is currently open by 'EXCEL.EXE' (PID 17992) - please close it and re-run the program
+2026-05-01 01:19:25,867 - __main__ - INFO - SHOW ELIGIBLE DEVICES clicked
+2026-05-01 01:20:06,225 - excel_and_data_ops - ERROR - Dataframe creation failed: Worksheet 'gkhgkyy' not found in the Excel file
+2026-05-01 01:20:22,949 - __main__ - INFO - SHOW ELIGIBLE DEVICES clicked
+2026-05-01 01:21:03,397 - excel_and_data_ops - INFO - Dataframe creation succeeded!
+2026-05-01 01:21:05,967 - device_cli_ops - WARNING - Authentication failed on 'R1' (10.17.1.11) — device is reachable
+2026-05-01 01:21:05,968 - device_cli_ops - INFO - 'R1' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:21:05,973 - device_cli_ops - WARNING - Authentication failed on 'R2' (10.17.1.12) — device is reachable
+2026-05-01 01:21:05,973 - device_cli_ops - INFO - 'R2' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:21:05,977 - device_cli_ops - WARNING - Authentication failed on 'R3' (10.17.1.13) — device is reachable
+2026-05-01 01:21:05,977 - device_cli_ops - INFO - 'R3' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:21:06,190 - device_cli_ops - WARNING - Authentication failed on 'SW4' (10.17.1.16) — device is reachable
+2026-05-01 01:21:06,190 - device_cli_ops - INFO - 'SW4' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:21:06,192 - device_cli_ops - WARNING - Authentication failed on 'SW2' (10.17.1.14) — device is reachable
+2026-05-01 01:21:06,193 - device_cli_ops - INFO - 'SW2' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:21:06,193 - device_cli_ops - WARNING - Authentication failed on 'SW3' (10.17.1.15) — device is reachable
+2026-05-01 01:21:06,193 - device_cli_ops - INFO - 'SW3' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:21:13,514 - device_cli_ops - WARNING - Device 'SW1' (10.17.1.10) is unreachable or failed: TCP connection to device failed.
+
+Common causes of this problem are:
+1. Incorrect hostname or IP address.
+2. Wrong TCP port.
+3. Intermediate firewall blocking access.
+
+Device settings: cisco_ios 10.17.1.10:22
+
+
+2026-05-01 01:21:13,514 - device_cli_ops - INFO - 'SW1' status set to: OFFLINE | auth: N/A
+2026-05-01 01:21:13,515 - excel_and_data_ops - ERROR - All online devices failed authentication — check credentials
+2026-05-01 01:22:17,949 - __main__ - INFO - SHOW ELIGIBLE DEVICES clicked
+2026-05-01 01:23:08,568 - excel_and_data_ops - INFO - Dataframe creation succeeded!
+2026-05-01 01:23:09,495 - device_cli_ops - INFO - APIs eTest command sent successfully to 'R2' (10.17.1.12)
+2026-05-01 01:23:09,496 - device_cli_ops - INFO - 'R2' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:23:09,505 - device_cli_ops - INFO - APIs eTest command sent successfully to 'R3' (10.17.1.13)
+2026-05-01 01:23:09,505 - device_cli_ops - INFO - 'R3' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:23:09,697 - device_cli_ops - INFO - APIs eTest command sent successfully to 'SW4' (10.17.1.16)
+2026-05-01 01:23:09,697 - device_cli_ops - INFO - 'SW4' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:23:09,704 - device_cli_ops - INFO - APIs eTest command sent successfully to 'SW3' (10.17.1.15)
+2026-05-01 01:23:09,704 - device_cli_ops - INFO - 'SW3' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:23:10,285 - device_cli_ops - INFO - APIs eTest command sent successfully to 'SW2' (10.17.1.14)
+2026-05-01 01:23:10,286 - device_cli_ops - INFO - 'SW2' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:23:10,967 - device_cli_ops - WARNING - Authentication failed on 'R1' (10.17.1.11) — device is reachable
+2026-05-01 01:23:10,967 - device_cli_ops - INFO - 'R1' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:23:18,695 - device_cli_ops - WARNING - Device 'SW1' (10.17.1.10) is unreachable or failed: TCP connection to device failed.
+
+Common causes of this problem are:
+1. Incorrect hostname or IP address.
+2. Wrong TCP port.
+3. Intermediate firewall blocking access.
+
+Device settings: cisco_ios 10.17.1.10:22
+
+
+2026-05-01 01:23:18,696 - device_cli_ops - INFO - 'SW1' status set to: OFFLINE | auth: N/A
+2026-05-01 01:23:18,863 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.12: 200
+2026-05-01 01:23:18,868 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.13: 200
+2026-05-01 01:23:19,072 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.16: 200
+2026-05-01 01:23:19,084 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.15: 200
+2026-05-01 01:23:19,165 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.14: 200
+2026-05-01 01:23:19,170 - excel_and_data_ops - INFO - RESTCONF check complete: 5/5 devices operative
+2026-05-01 01:23:19,340 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.12: 200 - 17.13.1a
+2026-05-01 01:23:19,345 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.13: 200 - 17.13.1a
+2026-05-01 01:23:19,438 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.15: 200 - 17.12.5
+2026-05-01 01:23:19,678 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.16: 200 - 17.15.5
+2026-05-01 01:23:19,730 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.14: 200 - 17.12.1prd9
+2026-05-01 01:23:19,844 - excel_and_data_ops - INFO - 'SW2': up to date (current: 17.12.1prd9)
+2026-05-01 01:23:19,845 - excel_and_data_ops - INFO - 'SW3': needs update (current: 17.12.5 to 17.12.06)
+2026-05-01 01:23:19,845 - excel_and_data_ops - INFO - 'SW4': needs update (current: 17.15.5 to 17.15.04)
+2026-05-01 01:23:19,847 - excel_and_data_ops - INFO - 'R2': needs update (current: 17.13.1a to 17.15.05c)
+2026-05-01 01:23:19,847 - excel_and_data_ops - INFO - 'R3': needs update (current: 17.13.1a to 17.12.06)
+2026-05-01 01:23:19,848 - excel_and_data_ops - INFO - Update check complete: 4 need update, 1 up to date, 2 unknown out of 7 total devices
+2026-05-01 01:23:19,953 - excel_and_data_ops - INFO - IOS image found for 'C9200' - '17.12.06': ios_repository\C9200\cat9k_lite_iosxe.17.12.06.SPA.bin
+2026-05-01 01:23:19,953 - excel_and_data_ops - INFO - IOS image found for 'C9200' - '17.15.04': ios_repository\C9200\cat9k_lite_iosxe.17.15.04.SPA.bin
+2026-05-01 01:23:19,956 - excel_and_data_ops - WARNING - No IOS image found for 'C8KV' matching version '17.15.05c' in ios_repository\C8KV
+2026-05-01 01:23:19,958 - excel_and_data_ops - INFO - IOS image found for 'C8KV' - '17.12.06': ios_repository\C8KV\c8000v-universalk9.17.12.06.SPA.bin
+2026-05-01 01:23:20,075 - excel_and_data_ops - INFO - Image size for 'SW3': 449 MB - ios_repository\C9200\cat9k_lite_iosxe.17.12.06.SPA.bin
+2026-05-01 01:23:20,076 - excel_and_data_ops - INFO - Image size for 'SW4': 480 MB - ios_repository\C9200\cat9k_lite_iosxe.17.15.04.SPA.bin
+2026-05-01 01:23:20,076 - excel_and_data_ops - WARNING - Skipping 'R2': no IOS image path available
+2026-05-01 01:23:20,077 - excel_and_data_ops - INFO - Image size for 'R3': 823 MB - ios_repository\C8KV\c8000v-universalk9.17.12.06.SPA.bin
+2026-05-01 01:23:20,995 - device_cli_ops - INFO - Flash free space for 10.17.1.13: 3868389376 Bytes -- 3689 MB
+2026-05-01 01:23:21,003 - device_cli_ops - INFO - Flash free space for 10.17.1.12: 3868479488 Bytes -- 3689 MB
+2026-05-01 01:23:21,199 - device_cli_ops - INFO - Flash free space for 10.17.1.15: 4132016128 Bytes -- 3941 MB
+2026-05-01 01:23:21,200 - device_cli_ops - INFO - Flash free space for 10.17.1.16: 4100935680 Bytes -- 3911 MB
+2026-05-01 01:23:21,488 - excel_and_data_ops - INFO - Updating EXCEL file succeded
+2026-05-01 01:23:21,489 - excel_and_data_ops - INFO - The EXCEL file has been closed by the program
+2026-05-01 01:23:21,491 - excel_and_data_ops - INFO - 3 device(s) eligible for IOS update out of 7 valid devices
+2026-05-01 01:26:15,494 - __main__ - INFO - STARTING PROGRAM
+2026-05-01 01:26:27,782 - __main__ - INFO - SHOW ELIGIBLE DEVICES clicked
+2026-05-01 01:27:15,274 - excel_and_data_ops - INFO - Dataframe creation succeeded!
+2026-05-01 01:27:16,214 - device_cli_ops - INFO - Test command sent successfully to 'R2' (10.17.1.12)
+2026-05-01 01:27:16,214 - device_cli_ops - INFO - Test command sent successfully to 'R3' (10.17.1.13)
+2026-05-01 01:27:16,214 - device_cli_ops - INFO - 'R2' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:27:16,215 - device_cli_ops - INFO - 'R3' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:27:16,413 - device_cli_ops - INFO - Test command sent successfully to 'SW3' (10.17.1.15)
+2026-05-01 01:27:16,413 - device_cli_ops - INFO - 'SW3' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:27:16,423 - device_cli_ops - INFO - Test command sent successfully to 'SW4' (10.17.1.16)
+2026-05-01 01:27:16,423 - device_cli_ops - INFO - 'SW4' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:27:17,026 - device_cli_ops - INFO - Test command sent successfully to 'SW2' (10.17.1.14)
+2026-05-01 01:27:17,027 - device_cli_ops - INFO - 'SW2' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:27:17,863 - device_cli_ops - WARNING - Authentication failed on 'R1' (10.17.1.11) — device is reachable
+2026-05-01 01:27:17,863 - device_cli_ops - INFO - 'R1' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:27:25,405 - device_cli_ops - WARNING - Device 'SW1' (10.17.1.10) is unreachable or failed: TCP connection to device failed.
+
+Common causes of this problem are:
+1. Incorrect hostname or IP address.
+2. Wrong TCP port.
+3. Intermediate firewall blocking access.
+
+Device settings: cisco_ios 10.17.1.10:22
+
+
+2026-05-01 01:27:25,405 - device_cli_ops - INFO - 'SW1' status set to: OFFLINE | auth: N/A
+2026-05-01 01:27:25,553 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.12: 200
+2026-05-01 01:27:25,558 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.13: 200
+2026-05-01 01:27:25,762 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.16: 200
+2026-05-01 01:27:25,853 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.14: 200
+2026-05-01 01:30:25,528 - device_api_ops - ERROR - !!! RESTCONF NOT operational for 10.17.1.15
+2026-05-01 01:30:25,536 - excel_and_data_ops - INFO - RESTCONF check complete: 4/5 devices operative
+2026-05-01 01:30:25,750 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.13: 200 - 17.13.1a
+2026-05-01 01:30:25,767 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.12: 200 - 17.13.1a
+2026-05-01 01:30:26,051 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.16: 200 - 17.15.5
+2026-05-01 01:30:26,092 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.14: 200 - 17.12.1prd9
+2026-05-01 01:30:26,196 - excel_and_data_ops - INFO - 'SW2': up to date (current: 17.12.1prd9)
+2026-05-01 01:30:26,197 - excel_and_data_ops - INFO - 'SW4': needs update (current: 17.15.5 to 17.15.04)
+2026-05-01 01:30:26,197 - excel_and_data_ops - INFO - 'R2': needs update (current: 17.13.1a to 17.15.05c)
+2026-05-01 01:30:26,197 - excel_and_data_ops - INFO - 'R3': needs update (current: 17.13.1a to 17.12.06)
+2026-05-01 01:30:26,198 - excel_and_data_ops - INFO - Update check complete: 3 need update, 1 up to date, 3 unknown out of 7 total devices
+2026-05-01 01:30:26,308 - excel_and_data_ops - INFO - IOS image found for 'C9200' - '17.15.04': ios_repository\C9200\cat9k_lite_iosxe.17.15.04.SPA.bin
+2026-05-01 01:30:26,309 - excel_and_data_ops - WARNING - No IOS image found for 'C8KV' matching version '17.15.05c' in ios_repository\C8KV
+2026-05-01 01:30:26,309 - excel_and_data_ops - INFO - IOS image found for 'C8KV' - '17.12.06': ios_repository\C8KV\c8000v-universalk9.17.12.06.SPA.bin
+2026-05-01 01:30:26,415 - excel_and_data_ops - INFO - Image size for 'SW4': 480 MB - ios_repository\C9200\cat9k_lite_iosxe.17.15.04.SPA.bin
+2026-05-01 01:30:26,417 - excel_and_data_ops - WARNING - Skipping 'R2': no IOS image path available
+2026-05-01 01:30:26,418 - excel_and_data_ops - INFO - Image size for 'R3': 823 MB - ios_repository\C8KV\c8000v-universalk9.17.12.06.SPA.bin
+2026-05-01 01:30:27,341 - device_cli_ops - INFO - Flash free space for 10.17.1.12: 3868479488 Bytes -- 3689 MB
+2026-05-01 01:30:27,353 - device_cli_ops - INFO - Flash free space for 10.17.1.13: 3868389376 Bytes -- 3689 MB
+2026-05-01 01:30:27,582 - device_cli_ops - INFO - Flash free space for 10.17.1.16: 4100935680 Bytes -- 3911 MB
+2026-05-01 01:30:27,865 - excel_and_data_ops - INFO - Updating EXCEL file succeded
+2026-05-01 01:30:27,865 - excel_and_data_ops - INFO - The EXCEL file has been closed by the program
+2026-05-01 01:30:27,867 - excel_and_data_ops - INFO - 2 device(s) eligible for IOS update out of 7 valid devices
+2026-05-01 01:31:43,126 - __main__ - INFO - STARTING PROGRAM
+2026-05-01 01:31:56,253 - __main__ - INFO - SHOW ELIGIBLE DEVICES clicked
+2026-05-01 01:32:39,701 - excel_and_data_ops - INFO - Dataframe creation succeeded!
+2026-05-01 01:32:40,609 - device_cli_ops - INFO - Test command sent successfully to 'R2' (10.17.1.12)
+2026-05-01 01:32:40,610 - device_cli_ops - INFO - 'R2' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:32:40,619 - device_cli_ops - INFO - Test command sent successfully to 'R3' (10.17.1.13)
+2026-05-01 01:32:40,619 - device_cli_ops - INFO - 'R3' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:32:40,816 - device_cli_ops - INFO - Test command sent successfully to 'SW3' (10.17.1.15)
+2026-05-01 01:32:40,816 - device_cli_ops - INFO - 'SW3' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:32:40,824 - device_cli_ops - INFO - Test command sent successfully to 'SW4' (10.17.1.16)
+2026-05-01 01:32:40,824 - device_cli_ops - INFO - 'SW4' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:32:41,475 - device_cli_ops - INFO - Test command sent successfully to 'SW2' (10.17.1.14)
+2026-05-01 01:32:41,475 - device_cli_ops - INFO - 'SW2' status set to: ONLINE | auth: AUTH_OK
+2026-05-01 01:32:42,266 - device_cli_ops - WARNING - Authentication failed on 'R1' (10.17.1.11) — device is reachable
+2026-05-01 01:32:42,266 - device_cli_ops - INFO - 'R1' status set to: ONLINE | auth: AUTH_BAD
+2026-05-01 01:32:49,820 - device_cli_ops - WARNING - Device 'SW1' (10.17.1.10) is unreachable or failed: TCP connection to device failed.
+
+Common causes of this problem are:
+1. Incorrect hostname or IP address.
+2. Wrong TCP port.
+3. Intermediate firewall blocking access.
+
+Device settings: cisco_ios 10.17.1.10:22
+
+
+2026-05-01 01:32:49,820 - device_cli_ops - INFO - 'SW1' status set to: OFFLINE | auth: N/A
+2026-05-01 01:32:49,976 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.12: 200
+2026-05-01 01:32:49,978 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.13: 200
+2026-05-01 01:32:50,187 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.16: 200
+2026-05-01 01:32:50,279 - device_api_ops - INFO - !!! Success checking RESTCONF operational for 10.17.1.14: 200
+2026-05-01 01:33:19,934 - device_api_ops - ERROR - !!! RESTCONF NOT operational for 10.17.1.15
+2026-05-01 01:33:19,937 - excel_and_data_ops - INFO - RESTCONF check complete: 4/5 devices operative
+2026-05-01 01:33:20,142 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.13: 200 - 17.13.1a
+2026-05-01 01:33:20,144 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.12: 200 - 17.13.1a
+2026-05-01 01:33:20,414 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.16: 200 - 17.15.5
+2026-05-01 01:33:20,477 - device_api_ops - INFO - !!! Success retrieving the IOS version for 10.17.1.14: 200 - 17.12.1prd9
+2026-05-01 01:33:20,585 - excel_and_data_ops - INFO - 'SW2': up to date (current: 17.12.1prd9)
+2026-05-01 01:33:20,586 - excel_and_data_ops - INFO - 'SW4': needs update (current: 17.15.5 to 17.15.04)
+2026-05-01 01:33:20,586 - excel_and_data_ops - INFO - 'R2': needs update (current: 17.13.1a to 17.15.05c)
+2026-05-01 01:33:20,586 - excel_and_data_ops - INFO - 'R3': needs update (current: 17.13.1a to 17.12.06)
+2026-05-01 01:33:20,586 - excel_and_data_ops - INFO - Update check complete: 3 need update, 1 up to date, 3 unknown out of 7 total devices
+2026-05-01 01:33:20,694 - excel_and_data_ops - INFO - IOS image found for 'C9200' - '17.15.04': ios_repository\C9200\cat9k_lite_iosxe.17.15.04.SPA.bin
+2026-05-01 01:33:20,695 - excel_and_data_ops - WARNING - No IOS image found for 'C8KV' matching version '17.15.05c' in ios_repository\C8KV
+2026-05-01 01:33:20,695 - excel_and_data_ops - INFO - IOS image found for 'C8KV' - '17.12.06': ios_repository\C8KV\c8000v-universalk9.17.12.06.SPA.bin
+2026-05-01 01:33:20,803 - excel_and_data_ops - INFO - Image size for 'SW4': 480 MB - ios_repository\C9200\cat9k_lite_iosxe.17.15.04.SPA.bin
+2026-05-01 01:33:20,803 - excel_and_data_ops - WARNING - Skipping 'R2': no IOS image path available
+2026-05-01 01:33:20,804 - excel_and_data_ops - INFO - Image size for 'R3': 823 MB - ios_repository\C8KV\c8000v-universalk9.17.12.06.SPA.bin
+2026-05-01 01:33:21,692 - device_cli_ops - INFO - Flash free space for 10.17.1.12: 3868479488 Bytes -- 3689 MB
+2026-05-01 01:33:21,705 - device_cli_ops - INFO - Flash free space for 10.17.1.13: 3868389376 Bytes -- 3689 MB
+2026-05-01 01:33:21,917 - device_cli_ops - INFO - Flash free space for 10.17.1.16: 4100935680 Bytes -- 3911 MB
+2026-05-01 01:33:22,165 - excel_and_data_ops - INFO - Updating EXCEL file succeded
+2026-05-01 01:33:22,166 - excel_and_data_ops - INFO - The EXCEL file has been closed by the program
+2026-05-01 01:33:22,167 - excel_and_data_ops - INFO - 2 device(s) eligible for IOS update out of 7 valid devices

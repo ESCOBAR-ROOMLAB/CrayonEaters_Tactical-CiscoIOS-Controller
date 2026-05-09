@@ -132,16 +132,18 @@ def valid_devices_dataframe(all_devices_df):
     Remove any rows in the Dataframe that don't have an OOBM IP Address value,
     or a Hostname value, an invalid IP address, or a missing Model. It also sets 
     the current IOS version value for online devices and it points out the offline ones.
+    Check for duplicate IP addresses and raise an error code if discovered.
 
     
     ARGUMENTS
     ---------
-    all_devices_df (str): the DataFrame with all the table data
+    all_devices_df (pd.DataFrame): the DataFrame with all the table data
 
     
     RETURN VALUE
     ------------
-    Filtered DataFrame with rows that have valid IP Addresses only, both Online and Offline.
+    Filtered DataFrame with rows that have valid IP Addresses only, both Online and Offline., or error code
+    if there are duplicate IP addresses
     """
 
     ### <=== REMOVE ROWS WITH MISSING CRITICAL VALUES ===> ###
@@ -197,20 +199,37 @@ def valid_devices_dataframe(all_devices_df):
     # Filter out any rows with invalid IPs
     valid_devices_df = valid_devices_df[valid_devices_df['OOBM IP Address'].apply(ip_addressing_ops.is_valid_ip) == True]
 
+
+    ### <=== CHECK FOR DUPLICATE IP ADDRESSES ===> ###
+    duplicated_mask = valid_devices_df['OOBM IP Address'].duplicated(keep=False)
+    if duplicated_mask.any():
+        dup_df = valid_devices_df[duplicated_mask]
+        dup_summary = (
+            dup_df.groupby('OOBM IP Address')['Hostname']
+            .agg(', '.join)
+        )
+        dup_lines = "\n".join(f"  {ip}  -->  {hosts}" for ip, hosts in dup_summary.items())
+        #--------------------------------------------------------------------------------------------
+        logger.error(f"DataFrame validation failed: duplicate OOBM IP addresses found:\n{dup_lines}")
+        #--------------------------------------------------------------------------------------------
+        # The | separator is used to split the error code from the detail string on the GUI side without needing a separate lookup.
+        return f"DUPLICATE_IP_ERROR|{dup_lines}"
+    
+
     ### <=== RETURN FILTERED DATAFRAME ===> ###
     return valid_devices_df
   
 
 # POPULATE THE STATUS AND AUTH STATUS COLUMN
 # ------------------------------------------
-def populate_status_and_auth_status_column(valid_devices_df, username, password):
+def populate_status_and_auth_status_column(valid_devices_df, username, password, secret):
 
     """
     PURPOSE
     -------
     Sends a test command to all devices and populates the
     'Status' column with ONLINE or OFFLINE, and the 'Auth Status' column
-    with AUTH_OK, AUTH_BAD, or None based on the result.
+    with AUTH_OK, AUTH_BAD, or 'N/A' based on the result.
 
     
     ARGUMENTS
@@ -218,6 +237,7 @@ def populate_status_and_auth_status_column(valid_devices_df, username, password)
     valid_devices_df (pd.DataFrame): DataFrame containing at minimum 'OOBM IP Address' and 'Hostname' columns.
     username         (str):          Device SSH username.
     password         (str):          Device SSH password.
+    secret           (str):          Device enable secret (empty string if not required).
 
     
     RETURN VALUE
@@ -237,7 +257,7 @@ def populate_status_and_auth_status_column(valid_devices_df, username, password)
             #-----------------------------------------------------------
             return "NO_DEVICES_ERROR"
         
-        results = device_cli_ops.first_connectivity_check_all(valid_devices_df, username, password)
+        results = device_cli_ops.first_connectivity_check_all(valid_devices_df, username, password, secret)
         
         # Check if we got any results back
         if not results:
@@ -277,6 +297,9 @@ def populate_status_and_auth_status_column(valid_devices_df, username, password)
         return None  # Success — at least some devices worked
         
     except Exception as e:
+        #---------------------------------------------------------------------------------------------------------------------------------
+        logger.error(f"Unexpected error in def populate_status_and_auth_status_column(valid_devices_df, username, password, secret): {e}")
+        #---------------------------------------------------------------------------------------------------------------------------------
         return "UNEXPECTED_ERROR"
 
 
@@ -288,8 +311,7 @@ def populate_restconf_status_column(valid_devices_df, username, password, timeou
     PURPOSE
     -------
     Polls the RESTCONF root endpoint on all ONLINE/AUTH_OK devices and populates
-    the 'RESTCONF Status' column with OPERATIVE, NOT_OPERATIVE, or N/A. This column only
-    exists in the DataFrame.
+    the 'RESTCONF Status' column with OPERATIVE, NOT_OPERATIVE, or N/A.
 
 
     ARGUMENTS
@@ -350,19 +372,22 @@ def populate_restconf_status_column(valid_devices_df, username, password, timeou
         return None  # Success — at least some devices are RESTCONF operative
 
     except Exception as e:
+        #------------------------------------------------------------------------
+        logger.error(f"Unexpected error in populate_restconf_status_column: {e}")
+        #------------------------------------------------------------------------
         return "UNEXPECTED_ERROR"
 
 
 # POPULATE SCP STATUS
 # -------------------
-def populate_scp_status_column(valid_devices_df, username, password):
+def populate_scp_status_column(valid_devices_df, username, password, secret):
  
     """
     PURPOSE
     -------
     Checks whether 'ip scp server enable' is present in the running config
     of all ONLINE/AUTH_OK devices and populates the 'SCP Enabled' column
-    with 'ENABLED', 'DISABLED', 'AUTH_BAD', or 'OFFLINE'. Devices that are
+    with 'YES', 'NO', 'AUTH_BAD', or 'UNKNOWN'. Devices that are
     not ONLINE/AUTH_OK receive 'N/A' without an SSH attempt.
  
  
@@ -371,6 +396,7 @@ def populate_scp_status_column(valid_devices_df, username, password):
     valid_devices_df (pd.DataFrame): DataFrame containing at minimum 'OOBM IP Address', 'Hostname', 'Status', and 'Auth Status' columns.
     username         (str):          Device SSH username.
     password         (str):          Device SSH password.
+    secret           (str):          Device enable secret (empty string if not required).
  
  
     RETURN VALUE
@@ -393,7 +419,7 @@ def populate_scp_status_column(valid_devices_df, username, password):
                 valid_devices_df.at[index, 'SCP Enabled'] = 'N/A'
 
         # Call the method to check the SCP status
-        results = device_cli_ops.check_scp_status_all(eligible_devices, username, password)
+        results = device_cli_ops.check_scp_status_all(eligible_devices, username, password, secret)
         
         # Initialize the counter
         enabled_count = 0
@@ -474,6 +500,9 @@ def populate_current_version_column(valid_devices_df, username, password):
         return None  # Success — at least some devices returned a version
         
     except Exception as e:
+        #------------------------------------------------------------------------
+        logger.error(f"Unexpected error in populate_current_version_column: {e}")
+        #------------------------------------------------------------------------
         return "UNEXPECTED_ERROR"
         
 
@@ -604,7 +633,7 @@ def valid_devices_df_with_image_path(valid_devices_df):
     """
 
     try:
-        # First, lets retrieve the absolute path of the folder that contains all the subfolders of the IOS images
+        # First, lets retrieve the relative path of the folder that contains all the subfolders of the IOS images
         ios_image_repository_path = 'ios_repository'
 
         # Check if the repository folder exists
@@ -658,8 +687,9 @@ def valid_devices_df_with_image_path(valid_devices_df):
             for file in os.listdir(model_folder_path):
                 # The version in the filename (17.15.04c) uses a different format than what RESTCONF returns (17.15.4c) — note the zero-padded 04 vs 4. 
                 # So a direct string match won't always work. The safest approach is to normalize both strings before comparing — strip leading zeros 
-                # from each numeric segment:
-                if common_helper_functions.normalize_ios_version_string(recommended_version) in common_helper_functions.normalize_ios_version_string(file):
+                # from each numeric segment. Also, we use an f-string to ensure that the 'Recommended IOS Version' column value is matched exactly: by including a dot (.)
+                # at the end of the f-string we avoid the program to recognize an IOS image like 17.9.6a to be valid for a 'Recommended IOS Version' column value of 17.9.6b.
+                if common_helper_functions.normalize_ios_version_string(f"{recommended_version}.") in common_helper_functions.normalize_ios_version_string(file):
                     ios_image_path = os.path.join(model_folder_path, file)
                     break
 
@@ -795,84 +825,100 @@ def get_image_files_size(valid_devices_df):
 
 # GET AND SET THE FLASH FREE SPACE
 # --------------------------------
-def populate_flash_free_space_column(valid_devices_df, username, password):
+def populate_flash_free_space_column(valid_devices_df, username, password, secret):
+    
     """
     PURPOSE
     -------
-    Runs the async flash free space retrieval, then maps the results
-    back into the DataFrame as a new 'Flash Free Space' column.
+    Retrieves the available flash free space for all devices that need an update
+    and are ONLINE/AUTH_OK, then maps the results back into the DataFrame as a
+    new 'Flash Free Space' column.
 
 
     ARGUMENTS
     ---------
     valid_devices_df (pd.DataFrame): DataFrame containing at minimum 'OOBM IP Address' column.
-    username         (str):          Device username for RESTCONF authentication.
-    password         (str):          Device password for RESTCONF authentication.
+    username         (str):          Device SSH username.
+    password         (str):          Device SSH password.
+    secret           (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
     ------------
-    None - modifies valid_devices_df in place via .at[] assignment. 
+    None if at least one device returned valid flash space — modifies valid_devices_df
+    in place via column assignment. Or an error code string on failure:
+        - "ALL_DEVICES_PARSE_ERROR"  : All eligible devices connected but flash space could not be parsed from CLI output
+        - "ALL_DEVICES_FAILED_ERROR" : All eligible devices failed for any other reason
+        - "UNEXPECTED_ERROR"         : An unexpected exception occurred
     """
 
-    # Only query flash space for devices that need an update AND are ONLINE with AUTH_OK
-    devices_needing_update_authgood_and_online = valid_devices_df[
-        (valid_devices_df['Needs Update'] == 'YES') &
-        (valid_devices_df['Status'] == 'ONLINE') &
-        (valid_devices_df['Auth Status'] == 'AUTH_OK')
-    ]
+    try:
+        # Only query flash space for devices that need an update AND are ONLINE with AUTH_OK
+        devices_needing_update_authgood_and_online = valid_devices_df[
+            (valid_devices_df['Needs Update'] == 'YES') &
+            (valid_devices_df['Status'] == 'ONLINE') &
+            (valid_devices_df['Auth Status'] == 'AUTH_OK')
+        ]
 
-    total_eligible = len(devices_needing_update_authgood_and_online)
-    
-    # Use your threaded function instead of asyncio
-    results = device_cli_ops.get_flash_free_space_all(
-        devices_needing_update_authgood_and_online,
-        username,
-        password
-    )
-
-    # We need the error counts for situations if all devices had this errors:
-    error_counts = {
-            "NO_FLASH_FOUND": 0,
-            "PARSE_ERROR": 0,
-            "THREAD_ERROR": 0,
-            "UNEXPECTED_ERROR": 0
-        }
-
-    # Map (ip, free_bytes) tuples back to the dataframe. Then .map() looks up each row's OOBM IP Address value in that dictionary. 
-    # So even if the async results came back in a completely random order, the correct value would still land on the correct row
-    free_space_map = {}
-
-    for ip, free_bytes, error_code in results:
-        free_space_map[ip] = free_bytes
-        if error_code and error_code in error_counts:
-            error_counts[error_code] += 1
-        elif error_code:
-            error_counts["UNEXPECTED_ERROR"] += 1
-
-    valid_devices_df['Flash Free Space'] = valid_devices_df['OOBM IP Address'].map(free_space_map)
-    
-    # NOTE: Devices that need an update get their value from free_space_map, and devices that don't need an update get NaN from .map() (since their IP won't be in the map)
-
-    # Count successful retrievals. Remember that all devices that failed to parse the free space (or another error) returned 'None' as the 'free_bytes' value in 'device_cli_ops.get_flash_free_space_all'.
-    successful_count = sum(1 for v in free_space_map.values() if v is not None)
-    
-    # If no devices returned valid flash space, analyze the failure pattern
-    if successful_count == 0:
-        total_errors = sum(error_counts.values())
+        total_eligible = len(devices_needing_update_authgood_and_online)
         
-        if error_counts["PARSE_ERROR"] + error_counts["NO_FLASH_FOUND"] == total_errors:
-            #--------------------------------------------------------------------------------------
-            logger.error(f"All {total_eligible} eligible devices failed due to CLI parsing issues")
-            #--------------------------------------------------------------------------------------
-            return "ALL_DEVICES_PARSE_ERROR"
-        else:
-            #----------------------------------------------------------------------------------
-            logger.error(f"All {total_eligible} eligible devices failed flash space retrieval")
-            #----------------------------------------------------------------------------------
-            return "ALL_DEVICES_FAILED_ERROR"
+        # Use your threaded function instead of asyncio
+        results = device_cli_ops.get_flash_free_space_all(
+            devices_needing_update_authgood_and_online,
+            username,
+            password,
+            secret
+        )
+
+        # We need the error counts for situations if all devices had this errors:
+        error_counts = {
+                "NO_FLASH_FOUND": 0,
+                "PARSE_ERROR": 0,
+                "THREAD_ERROR": 0,
+                "UNEXPECTED_ERROR": 0
+            }
+
+        # Map (ip, free_bytes) tuples back to the dataframe. Then .map() looks up each row's OOBM IP Address value in that dictionary. 
+        # So even if the async results came back in a completely random order, the correct value would still land on the correct row
+        free_space_map = {}
+
+        for ip, free_bytes, error_code in results:
+            free_space_map[ip] = free_bytes
+            if error_code and error_code in error_counts:
+                error_counts[error_code] += 1
+            elif error_code:
+                error_counts["UNEXPECTED_ERROR"] += 1
+
+        # NOTE: Devices that need an update get their value from free_space_map.
+        # Devices that don't need an update are not in the map and receive NaN from .map().
+        valid_devices_df['Flash Free Space'] = valid_devices_df['OOBM IP Address'].map(free_space_map)
+        
+        # Count successful retrievals. Remember that all devices that failed to parse the free space (or another error) returned 'None' as the 'free_bytes' value in 'device_cli_ops.get_flash_free_space_all'.
+        successful_count = sum(1 for v in free_space_map.values() if v is not None)
+        
+        # If no devices returned valid flash space, analyze the failure pattern
+        if successful_count == 0:
+            total_errors = sum(error_counts.values())
+            
+            if error_counts["PARSE_ERROR"] + error_counts["NO_FLASH_FOUND"] == total_errors:
+                #--------------------------------------------------------------------------------------
+                logger.error(f"All {total_eligible} eligible devices failed due to CLI parsing issues")
+                #--------------------------------------------------------------------------------------
+                return "ALL_DEVICES_PARSE_ERROR"
+            else:
+                #----------------------------------------------------------------------------------
+                logger.error(f"All {total_eligible} eligible devices failed flash space retrieval")
+                #----------------------------------------------------------------------------------
+                return "ALL_DEVICES_FAILED_ERROR"
+
+        return None  # Success — at least one device returned flash space
+
+    except Exception as e:
+        #-------------------------------------------------------------------------
+        logger.error(f"Unexpected error in populate_flash_free_space_column: {e}")
+        #-------------------------------------------------------------------------
+        return "UNEXPECTED_ERROR"
     
-    return None  # Success — at least one device returned flash space
 
 
 # DETERMINE IF FLASH FREE SPACE IS ENOUGH
@@ -1032,7 +1078,7 @@ def populate_transfer_status_column(valid_devices_df, selected_eligible_devices_
     Calls transfer_ios_image() for each selected eligible device and populates
     the 'Transfer Result' column in valid_devices_df with the return code.
     Prompts the user to choose between sequential and threaded transfer modes
-    before starting. Devices not selected for transfer are marked as 'NOT_ATTEMPTED'.
+    before starting. Devices not selected for transfer are marked as 'N/A'.
 
 
     ARGUMENTS
@@ -1095,7 +1141,7 @@ def populate_transfer_status_column(valid_devices_df, selected_eligible_devices_
 
         ### <=== MARK NON-SELECTED DEVICES ===> ###
         # Every device in valid_devices_df that was not part of this transfer run gets
-        # NOT_ATTEMPTED — this covers OFFLINE devices, NOT_OPERATIVE devices, devices with
+        # N/A — this covers OFFLINE devices, NOT_OPERATIVE devices, devices with
         # insufficient flash space, and eligible devices the user chose not to select.
         # This ensures the Transfer Status column is fully populated for the Excel tracker.
         for index in valid_devices_df.index:
@@ -1126,7 +1172,8 @@ def populate_transfer_status_column(valid_devices_df, selected_eligible_devices_
                 username,
                 password,
                 local_image_path,
-                remote_filename
+                remote_filename,
+                device_cli_ops.cancel_event     # Allows mid-transfer abort on cancellation request
             )
 
             #-----------------------------------------------------------------------
@@ -1158,7 +1205,10 @@ def populate_transfer_status_column(valid_devices_df, selected_eligible_devices_
             logger.info("User elected a threaded SCP transfer")
             #--------------------------------------------------
             results = device_file_transfer_ops.threaded_transfer_ios_image_all(
-                selected_eligible_devices_df, username, password
+                selected_eligible_devices_df, 
+                username, 
+                password, 
+                device_cli_ops.cancel_event # Forwarded to each individual transfer worker
             )
 
             # results is {index: result} — write each back to the correct row
@@ -1284,7 +1334,7 @@ def confirm_installs(install_eligible_devices_df):
 
     return confirmed_df, aborted_df
 
-def populate_install_status_column(valid_devices_df, install_eligible_devices_df, username, password, skip_confirmation=False):
+def populate_install_status_column(valid_devices_df, install_eligible_devices_df, username, password, secret, skip_confirmation=False):
 
     """
     PURPOSE
@@ -1305,6 +1355,7 @@ def populate_install_status_column(valid_devices_df, install_eligible_devices_df
                                                 SUCCESS and all eligibility conditions met.
     username                    (str):          Device SSH username.
     password                    (str):          Device SSH password.
+    secret                      (str):          Device enable secret (empty string if not required).
     skip_confirmation           (bool):         When True (GUI mode), auto-confirms all devices without user input.
 
 
@@ -1336,7 +1387,7 @@ def populate_install_status_column(valid_devices_df, install_eligible_devices_df
             confirmed_df, aborted_df = confirm_installs(install_eligible_devices_df)
 
 
-        ### <=== RECORD ABORTED DEVICES ===> ###
+        ### <=== RECORD ABORTED DEVICES (CLI VERSION ONLY) ===> ###
         # Write ABORTED immediately for devices the user declined — these never reach
         # the install function so their status would otherwise remain unpopulated.
         #for idx in aborted_df.index:
@@ -1348,10 +1399,10 @@ def populate_install_status_column(valid_devices_df, install_eligible_devices_df
         # Returns {index: result} — one entry per device.
         triggered_count = 0
         if not confirmed_df.empty:
-            install_results = device_cli_ops.install_ios_image_all(confirmed_df, username, password)
+            install_results = device_cli_ops.install_ios_image_all(confirmed_df, username, password, secret)
 
             for index, result in install_results.items():
-                # Devices skipped due to failed transfer get N/A — install was never applicable
+                # Write the result code as a column value
                 valid_devices_df.at[index, 'Install Status'] = result
                 if result == 'INSTALL_TRIGGERED':
                     triggered_count += 1
@@ -1362,7 +1413,7 @@ def populate_install_status_column(valid_devices_df, install_eligible_devices_df
             return "ALL_INSTALLS_FAILED_ERROR"
         
         # If no device triggered the install, it's a fatal error for the update
-        if triggered_count == 0 and not confirmed_df.empty:
+        if triggered_count == 0:
             #-----------------------------------------------------------------------------------
             logger.error(f"All {len(confirmed_df)} confirmed devices failed to trigger install")
             #-----------------------------------------------------------------------------------
@@ -1379,7 +1430,7 @@ def populate_install_status_column(valid_devices_df, install_eligible_devices_df
 
 # POPULATE INSTALLED VERSION AND UPDATE RESULT COLUMNS
 # -----------------------------------------------------
-def populate_post_install_columns(valid_devices_df, install_eligible_devices_df, username, password):
+def populate_post_install_columns(valid_devices_df, username, password, secret):
 
     """
     PURPOSE
@@ -1387,12 +1438,20 @@ def populate_post_install_columns(valid_devices_df, install_eligible_devices_df,
     Executes the post-reboot sequence for all devices that had an install
     triggered:
 
-        1. Marks devices not part of the install run as N/A immediately.
-        2. Waits 5 minutes for devices to complete their reload.
-        3. Polls RESTCONF on all INSTALL_TRIGGERED devices for up to 5 minutes
+        1. Marks devices that will not reach the reload stage upfront:
+             - Never-selected devices             → both columns set to N/A.
+             - Selected but failed before reload  → Installed Version = N/A,
+               Update Result = FAILED (covers SCP transfer failures and install add/activate failures).
+
+        2. Waits 10 minutes for devices to complete their reload.
+
+        3. Polls RESTCONF on all INSTALL_TRIGGERED devices for up to 12 minutes
            to determine if they came back online.
+
         4. Marks timed-out devices as UNKNOWN for both columns.
+
         5. Runs 'install commit' concurrently on all online devices.
+
         6. Retrieves the running version via RESTCONF and compares against
            the recommended version, populating both columns accordingly.
 
@@ -1400,9 +1459,9 @@ def populate_post_install_columns(valid_devices_df, install_eligible_devices_df,
     ARGUMENTS
     ---------
     valid_devices_df            (pd.DataFrame): Full device DataFrame — receives column values.
-    install_eligible_devices_df (pd.DataFrame): Devices that were part of the install run.
     username                    (str):          Device username.
     password                    (str):          Device password.
+    secret                      (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1415,23 +1474,39 @@ def populate_post_install_columns(valid_devices_df, install_eligible_devices_df,
 
     try:
 
-        ### <=== MARK NON-INSTALL DEVICES IMMEDIATELY ===> ###
-        # Devices that were never part of the install run get N/A for both columns
-        # upfront — no need to wait for them.
-        for index in valid_devices_df.index:
-            if index not in install_eligible_devices_df.index:
-                valid_devices_df.at[index, 'Installed Version'] = 'N/A'
-                valid_devices_df.at[index, 'Update Result']     = 'N/A'
+        ### <=== MARK DEVICES THAT WILL NOT REACH POST-INSTALL ===> ###
+        # Three buckets to handle here, one bucket left for the post-reload logic below:
+        #
+        #   - Never selected by user                    → Installed=N/A,  Update=N/A
+        #
+        #   - Selected but failed before reload         → Installed=N/A,  Update=FAILED
+        #     (covers SCP transfer failures AND install add/activate failures)
+        #
+        #   - Install was triggered, reload in flight   → leave columns untouched;
+        #     the post-reboot block populates them with UNKNOWN / FAILED / COMMIT_FAILED / SUCCESS.
+        #
+        # A device reached the reload stage iff Install Status == 'INSTALL_TRIGGERED'.
+        #
+        # A device was never selected iff Transfer Result == 'N/A' (set upfront by populate_transfer_status_column for every non-selected row).
+
+        not_triggered  = valid_devices_df['Install Status']  != 'INSTALL_TRIGGERED'
+        never_selected = valid_devices_df['Transfer Result'] == 'N/A'
+
+        # All non-triggered devices have no installed version to report
+        valid_devices_df.loc[not_triggered, 'Installed Version'] = 'N/A'
+
+        # Among non-triggered: never-selected get N/A, selected-but-failed get FAILED
+        valid_devices_df.loc[not_triggered &  never_selected, 'Update Result'] = 'N/A'
+        valid_devices_df.loc[not_triggered & ~never_selected, 'Update Result'] = 'FAILED'
 
 
         ### <=== FILTER TO INSTALL_TRIGGERED DEVICES ONLY ===> ###
-        # Only devices that actually had the install command sent are relevant —
-        # aborted devices are in install_eligible_devices_df but never reloaded
-        # so they should not be polled.
+        # Only devices that actually had the install command sent are relevant
         triggered_devices = valid_devices_df[
             valid_devices_df['Install Status'] == 'INSTALL_TRIGGERED'
         ]
 
+        # Handle the situation where no devices had the IOS image file decompression finished
         if triggered_devices.empty:
             #---------------------------------------------------------------------------
             logger.warning("No INSTALL_TRIGGERED devices found — skipping post-install")
@@ -1440,13 +1515,13 @@ def populate_post_install_columns(valid_devices_df, install_eligible_devices_df,
 
 
         ### <=== INITIAL SLEEP — WAIT FOR RELOAD TO COMPLETE ===> ###
-        # Give devices 5 minutes to complete the reload before starting to poll.
+        # Give devices 10 minutes to complete the reload before starting to poll.
         # Install mode upgrades can take several minutes to finish booting. This
         # timer starts when the last device is marked with "INSTALL_TRIGGERED"
         #-----------------------------------------------------------------
-        logger.info("Waiting 6 minutes for devices to complete reload...")
+        logger.info("Waiting 10 minutes for devices to complete reload...")
         #-----------------------------------------------------------------
-        time.sleep(360)
+        time.sleep(600)
 
 
         ### <=== POLL RESTCONF TO CHECK IF DEVICES ARE BACK ONLINE ===> ###
@@ -1490,14 +1565,8 @@ def populate_post_install_columns(valid_devices_df, install_eligible_devices_df,
         ### <=== RUN INSTALL COMMIT ON ALL ONLINE DEVICES ===> ###
         online_devices_df = triggered_devices.loc[online_indexes]
 
-        if online_devices_df.empty:
-            #--------------------------------------------------------------------------------
-            logger.warning("No devices came back online — skipping commit and version check")
-            #--------------------------------------------------------------------------------
-            return
-
         # Returns {index: result} — one entry per device
-        commit_results = device_cli_ops.commit_ios_install_all(online_devices_df, username, password)
+        commit_results = device_cli_ops.commit_ios_install_all(online_devices_df, username, password, secret)
 
 
         ### <=== RETRIEVE RUNNING VERSION AND POPULATE COLUMNS ===> ###
@@ -1557,7 +1626,7 @@ def populate_post_install_columns(valid_devices_df, install_eligible_devices_df,
 
 # POPULATE THE CLEANED INACTIVE COLUMN
 # -------------------------------------
-def populate_cleaned_inactive_column(valid_devices_df, username, password):
+def populate_cleaned_inactive_column(valid_devices_df, username, password, secret):
 
     """
     PURPOSE
@@ -1573,6 +1642,7 @@ def populate_cleaned_inactive_column(valid_devices_df, username, password):
     valid_devices_df (pd.DataFrame): Full device DataFrame — receives Cleaned Inactive values.
     username         (str):          Device SSH username.
     password         (str):          Device SSH password.
+    secret           (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1585,18 +1655,25 @@ def populate_cleaned_inactive_column(valid_devices_df, username, password):
 
     try:
         # Returns {index: result} — N/A for non-triggered devices, return code for triggered ones
-        results = device_cli_ops.remove_inactive_ios_all(valid_devices_df, username, password)
+        results = device_cli_ops.remove_inactive_ios_all(valid_devices_df, username, password, secret)
 
         # Count how many triggered devices actually succeeded in cleaning
         cleaned_count = 0
+        cleaned_failed_count = 0
         triggered_count = 0
         for index, result in results.items():
             valid_devices_df.at[index, 'Cleaned Inactive'] = result
             # Result could be N/A (non-triggered), but we only care about triggered devices
             if result != 'N/A':
                 triggered_count += 1
-                if result == 'CLEANED':
+
+                # If every triggered device has nothing to remove (e.g. a clean bootflash), they all return NOTHING_TO_CLEAN. 
+                # cleaned_count stays 0, triggered_count > 0, and the function would incorrectly return ALL_CLEANUP_FAILED_ERROR. 
+                # NOTHING_TO_CLEAN is a valid success state and should satisfy the check:
+                if result in ('CLEANED', 'NOTHING_TO_CLEAN'):
                     cleaned_count += 1
+                elif result in ('CLEAN_FAILED', 'CONNECT_ERROR', 'UNEXPECTED_ERROR'):
+                    cleaned_failed_count += 1
 
         # If there were triggered devices but none cleaned successfully, it's a failure
         if triggered_count > 0 and cleaned_count == 0:
@@ -1604,6 +1681,14 @@ def populate_cleaned_inactive_column(valid_devices_df, username, password):
             logger.error(f"Cleanup failed for all {triggered_count} triggered devices")
             #--------------------------------------------------------------------------
             return "ALL_CLEANUP_FAILED_ERROR"
+
+        elif cleaned_failed_count > 0 and cleaned_count > 0:
+            # In case of a partial fail, we do not return nothing because is not a fatal error. The Summary dialog will catch partial failures and 
+            # show the count of devices that weren't able to be cleaned thanks to handling the return code of 'device_cli_ops.remove_inactive_ios'. 
+            # So we just log the error and that's it.
+            #-------------------------------------------------------------------------------------
+            logger.error(f"Cleanup partially failed for {cleaned_failed_count} triggered devices")
+            #-------------------------------------------------------------------------------------
 
         return None   # Success or no triggered devices
 
@@ -1687,11 +1772,11 @@ def update_excel_tracker(excel_file, excel_sheet_name, valid_devices_df):
             elif header == "Install Status":
                 install_status_col_index = column
             elif header == "Update Result":
-                 update_result_col_index = column
+                update_result_col_index = column
             elif header == "Cleaned Inactive":
                 cleaned_inactive_col_index = column
 
-        # Build lookup dicts from the dataframe: {hostname: currrent_version}, ...
+        # Build lookup dicts from the dataframe: {hostname: current_version}, ...
         version_lookup = dict(zip(valid_devices_df['Hostname'], valid_devices_df['Current IOS Version']))
         status_lookup = dict(zip(valid_devices_df['Hostname'], valid_devices_df['Status']))
         auth_status_lookup = dict(zip(valid_devices_df['Hostname'], valid_devices_df['Auth Status']))
@@ -1749,9 +1834,9 @@ def update_excel_tracker(excel_file, excel_sheet_name, valid_devices_df):
 
         # Save the workbook back to disk, persisting all cell changes
         workbook.save(excel_file)
-        #-------------------------------------------
-        logger.info(f"Updating EXCEL file succeded")
-        #-------------------------------------------
+        #--------------------------------------------
+        logger.info(f"Updating EXCEL file succeeded")
+        #--------------------------------------------
         return "SUCCESS"
         
     except Exception as e:
@@ -1763,9 +1848,9 @@ def update_excel_tracker(excel_file, excel_sheet_name, valid_devices_df):
             return "PERMISSION_DENIED_ERROR"
         
         else:
-            #-----------------------------------------------------------------------------
-            logger.error(f"Updating EXCEL file failed: an unexpected error occured - {e}")
-            #-----------------------------------------------------------------------------
+            #------------------------------------------------------------------------------
+            logger.error(f"Updating EXCEL file failed: an unexpected error occurred - {e}")
+            #------------------------------------------------------------------------------
             return "UNEXPECTED_ERROR"
     
     finally:
@@ -1809,7 +1894,9 @@ def check_excel_file_not_open(excel_file):
                     #---------------------------------------------------------------------------------------------------------------------------------------------
                     # Stop the program — file must be closed before proceeding
                     return 'ERROR_EXCEL_FILE_OPEN'
-
+        
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             # Process may have died mid-iteration or denied access to its file list — skip it
             continue
+        
+    return None  # File is not open — safe to proceed

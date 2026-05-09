@@ -7,7 +7,6 @@ import logging
 # Logging handler that auto-rotates the log file when it reaches a defined size limit
 from logging.handlers import RotatingFileHandler
 
-
 ###################################################################################################################################
 
 # SETUP LOGGING
@@ -36,6 +35,7 @@ logger.addHandler(handler)
 # VALIDATE AN IP ADDRESS
 # ----------------------
 def is_valid_ip(ip):
+
     """
     PURPOSE
     -------
@@ -53,9 +53,11 @@ def is_valid_ip(ip):
     ------------
     True if the value is a valid IPv4 address, False otherwise.
     """
+
     try:
         # Ensure it's a string first, then attempt to parse as IPv4
         ipaddress.IPv4Address(str(ip).strip())
         return True
+    
     except (ipaddress.AddressValueError, ValueError):
         return False

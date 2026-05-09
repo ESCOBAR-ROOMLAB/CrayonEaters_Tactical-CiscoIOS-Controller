@@ -17,11 +17,20 @@ test.py
 # --- The logging file ---
 execution_logs.log
 
+# The .zip file with the compiled apllication
+Cisco_Tactical_Controller.zip
+
 # Documentation not relevant (mostly personal things)
 documentation/Ideas.txt
 documentation/Objectives.txt
 documentation/to_do.txt
 documentation/v1.2_changes.txt
+
+# Visual Images folder
+/images/
+
+# Video advertisement folder and contents
+/video_advertisement/
 
 # VS-Code Workspace
 CrayonEaters_Tactical-CiscoIOS-Controller.code-workspace

@@ -1,7 +1,7 @@
 # Standard library module for thread-safe signaling between threads (used for cancellation)
 import threading
 
-# Standard library module for interacting with the Python interpreter (used here for sys.exit())
+# Standard library module for interacting with the Python interpreter (used here for sys.platform == 'win32')
 import sys
 
 # Standard library module for low‑level network communication
@@ -67,10 +67,14 @@ logger.addHandler(handler)
 # Set this to signal all threads to stop
 cancel_event = threading.Event()
 
+###################################################################################################################################
+
+### FOR ALL MODES ###
+
 
 # CHECK CONNECTIVITY VIA SSH
 # --------------------------
-def first_connectivity_check(row, username, password):
+def first_connectivity_check(row, username, password, secret):
 
     """
     PURPOSE
@@ -79,17 +83,20 @@ def first_connectivity_check(row, username, password):
     Sets the device Status to ONLINE on success, OFFLINE on failure.
     If authentication fails, marks device as ONLINE with AUTH_BAD auth status.
 
+    
     ARGUMENTS
     ---------
     row      (pd.Series): A single DataFrame row containing device information.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
+    
     RETURN VALUE
     ------------
     Tuple of (index, status, auth_status) where:
         status      : 'ONLINE' or 'OFFLINE'
-        auth_status : 'AUTH_OK', 'AUTH_BAD', or None
+        auth_status : 'AUTH_OK', 'AUTH_BAD', or 'N/A'
     """
 
     # Define the parameters
@@ -103,23 +110,19 @@ def first_connectivity_check(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
-        # Define the test command
-        commands = [
-            '!'
-        ]
-
-        # Push the config commands to the devices
-        connection.send_config_set(commands)
+        # Push the test command to the devices
+        connection.send_command('!')
         connection.disconnect()
 
         #--------------------------------------------------------------------
         logger.info(f"Test command sent successfully to '{hostname}' ({ip})")
         #--------------------------------------------------------------------
 
-        # If it succeded, it means the device is ONLINE and the authentication succeded
+        # If it succeeded, it means the device is ONLINE and the authentication succeeded
         return index, 'ONLINE', 'AUTH_OK'
     
     except NetmikoAuthenticationException:
@@ -137,7 +140,7 @@ def first_connectivity_check(row, username, password):
         return index, 'OFFLINE', 'N/A'
 
 # Thread pool -- Called by 'populate_status_and_auth_status_column' from 'excel_and_data_ops'
-def first_connectivity_check_all(valid_devices_df, username, password):
+def first_connectivity_check_all(valid_devices_df, username, password, secret):
 
     """
     PURPOSE
@@ -150,6 +153,7 @@ def first_connectivity_check_all(valid_devices_df, username, password):
     valid_devices_df (pd.DataFrame): DataFrame containing at minimum 'OOBM IP Address' and 'Hostname' columns.
     username         (str):          Device SSH username.
     password         (str):          Device SSH password.
+    secret           (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -162,11 +166,11 @@ def first_connectivity_check_all(valid_devices_df, username, password):
 
         # Build a future for each device, keyed by hostname for result logging
         futures = {
-            executor.submit(first_connectivity_check, row, username, password): row['Hostname']
+            executor.submit(first_connectivity_check, row, username, password, secret): row['Hostname']
             for _, row in valid_devices_df.iterrows()
         }
 
-        # Initialize the list that will collect (index, status) tuples
+        # Initialize the list that will collect (index, status, auth_status) tuples
         results = []
 
         # Process results as each thread completes — order is not guaranteed
@@ -186,10 +190,14 @@ def first_connectivity_check_all(valid_devices_df, username, password):
 
     return results
 
+###################################################################################################################################
+
+### FOR UPDATER MODE ONLY ###
+
 
 # NOT USED: ENABLE SCP AND RESTCONF ON ALL ONLINE DEVICES
 # -------------------------------------------------------
-def enable_scp_and_restconf(row, username, password):
+def enable_scp_and_restconf(row, username, password, secret):
 
     """
     PURPOSE
@@ -204,12 +212,13 @@ def enable_scp_and_restconf(row, username, password):
     row      (pd.Series): A single DataFrame row containing device information.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
     RETURN VALUE
     ------------
     Tuple of (index, status, auth_status) where:
         status      : 'ONLINE' or 'OFFLINE'
-        auth_status : 'AUTH_OK', 'AUTH_BAD', or None
+        auth_status : 'AUTH_OK', 'AUTH_BAD', or 'N/A'
     """
 
     # Define the parameters
@@ -223,7 +232,8 @@ def enable_scp_and_restconf(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
         # Enable RESTCONF, SCP and HTTPS
@@ -259,7 +269,7 @@ def enable_scp_and_restconf(row, username, password):
         return index, 'OFFLINE', 'N/A'
 
 # Thread pool -- Called by ...
-def enable_scp_and_restconf_all(valid_devices_df, username, password):
+def enable_scp_and_restconf_all(valid_devices_df, username, password, secret):
 
     """
     PURPOSE
@@ -273,6 +283,7 @@ def enable_scp_and_restconf_all(valid_devices_df, username, password):
     valid_devices_df (pd.DataFrame): DataFrame containing at minimum 'OOBM IP Address' and 'Hostname' columns.
     username         (str):          Device SSH username.
     password         (str):          Device SSH password.
+    secret           (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -285,7 +296,7 @@ def enable_scp_and_restconf_all(valid_devices_df, username, password):
 
         # Build a future for each device, keyed by hostname for result logging
         futures = {
-            executor.submit(enable_scp_and_restconf, row, username, password): row['Hostname']
+            executor.submit(enable_scp_and_restconf, row, username, password, secret): row['Hostname']
             for _, row in valid_devices_df.iterrows()
         }
 
@@ -312,7 +323,7 @@ def enable_scp_and_restconf_all(valid_devices_df, username, password):
 
 # NOT USED: DISABLE SCP AND HTTP ON ONLINE, NON-SELECTED DEVICES
 # --------------------------------------------------------------
-def disable_scp_and_restconf(row, username, password):
+def disable_scp_and_restconf(row, username, password, secret):
 
     """
     PURPOSE
@@ -329,6 +340,7 @@ def disable_scp_and_restconf(row, username, password):
                           'OOBM IP Address' and 'Hostname'.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -348,7 +360,8 @@ def disable_scp_and_restconf(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
         # Disable the extra services that have been enabled
@@ -382,7 +395,7 @@ def disable_scp_and_restconf(row, username, password):
         return index, 'UNEXPECTED_ERROR'
 
 # Thread pool -- Called by ...
-def disable_scp_and_restconf_all(online_authok_devices_df, username, password):
+def disable_scp_and_restconf_all(online_authok_devices_df, username, password, secret):
     
     """
     PURPOSE
@@ -399,6 +412,7 @@ def disable_scp_and_restconf_all(online_authok_devices_df, username, password):
                                             that are ONLINE and AUTH_OK.
     username                 (str):          Device SSH username.
     password                 (str):          Device SSH password.
+    secret                   (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -415,7 +429,7 @@ def disable_scp_and_restconf_all(online_authok_devices_df, username, password):
 
         # Keyed by dict to avoid tuple unpacking ambiguity on the DataFrame index
         futures = {
-            executor.submit(disable_scp_and_restconf, row, username, password):
+            executor.submit(disable_scp_and_restconf, row, username, password, secret):
                 {'index': idx, 'hostname': row['Hostname']}
             for idx, row in online_authok_devices_df.iterrows()
         }
@@ -442,7 +456,7 @@ def disable_scp_and_restconf_all(online_authok_devices_df, username, password):
 
 # CHECK SCP SERVER STATUS ON ONLINE/AUTH_OK DEVICES
 # -------------------------------------------------
-def check_scp_status(row, username, password):
+def check_scp_status(row, username, password, secret):
 
     """
     PURPOSE
@@ -460,6 +474,7 @@ def check_scp_status(row, username, password):
     row      (pd.Series): A single DataFrame row containing 'OOBM IP Address' and 'Hostname'.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -480,7 +495,8 @@ def check_scp_status(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
         output = connection.send_command('show run | section ip scp')
@@ -508,8 +524,8 @@ def check_scp_status(row, username, password):
         #------------------------------------------------------------------------
         return index, 'UNKNOWN'
 
-# Thread pool -- Called by '' from 'excel_and_data_ops'   
-def check_scp_status_all(online_authok_df, username, password):
+# Thread pool -- Called by 'populate_scp_status_column' from 'excel_and_data_ops'   
+def check_scp_status_all(online_authok_df, username, password, secret):
 
     """
     PURPOSE
@@ -524,6 +540,7 @@ def check_scp_status_all(online_authok_df, username, password):
                                      Must contain 'OOBM IP Address' and 'Hostname'.
     username         (str):          Device SSH username.
     password         (str):          Device SSH password.
+    secret           (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -538,7 +555,7 @@ def check_scp_status_all(online_authok_df, username, password):
     with ThreadPoolExecutor(max_workers=10) as executor:
 
         futures = {
-            executor.submit(check_scp_status, row, username, password): row['Hostname']
+            executor.submit(check_scp_status, row, username, password, secret): row['Hostname']
             for _, row in online_authok_df.iterrows()
         }
 
@@ -560,7 +577,7 @@ def check_scp_status_all(online_authok_df, username, password):
 
 # GET THE DEVICE'S FLASH MEMORY FREE SPACE
 # ----------------------------------------
-def get_flash_free_space(row, username, password):
+def get_flash_free_space(row, username, password, secret):
 
     """
     PURPOSE
@@ -576,6 +593,7 @@ def get_flash_free_space(row, username, password):
     row      (pd.Series): A single DataFrame row containing device information.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
     
     RETURN VALUE
@@ -596,7 +614,8 @@ def get_flash_free_space(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
         output = connection.send_command("show file systems")
@@ -621,7 +640,7 @@ def get_flash_free_space(row, username, password):
             #-------------------------------------------------------------------
             return ip, None, "NO_FLASH_FOUND"
 
-        # Intialize the empty list of lines that actually contain the desired information
+        # Initialize the empty list of lines that actually contain the desired information
         selected_line = None
 
         # Prefer bootflash if present
@@ -657,7 +676,7 @@ def get_flash_free_space(row, username, password):
         logger.info(f"Flash free space for {ip}: {free_bytes} Bytes -- {free_bytes / (1024*1024):.0f} MB")
         #-------------------------------------------------------------------------------------------------
 
-        # Explicitely return a 'None' error code, so that it does not cause a crash on the 'excel_and_data_ops.populate_flash_free_space_column' function,
+        # Explicitly return a 'None' error code, so that it does not cause a crash on the 'excel_and_data_ops.populate_flash_free_space_column' function,
         # since is expecting to recieve a tuple of 3 values.
         return ip, free_bytes, None
 
@@ -668,7 +687,8 @@ def get_flash_free_space(row, username, password):
         return ip, None, 'UNEXPECTED_ERROR'
     
 # Thread pool -- Called by 'populate_flash_free_space_column' from 'excel_and_data_ops'
-def get_flash_free_space_all(valid_devices_df, username, password):
+def get_flash_free_space_all(valid_devices_df, username, password, secret):
+
     """
     PURPOSE
     -------
@@ -679,11 +699,12 @@ def get_flash_free_space_all(valid_devices_df, username, password):
     valid_devices_df (pd.DataFrame): Device inventory
     username         (str):          SSH username
     password         (str):          SSH password
+    secret           (str):          Device enable secret (empty string if not required)
 
     RETURN VALUE
     ------------
     List of tuples:
-        (ip, free_bytes)
+        (ip, free_bytes, error_code)
     """
 
     results = []
@@ -692,7 +713,7 @@ def get_flash_free_space_all(valid_devices_df, username, password):
 
         # Keyed by hostname for result logging — mirrors enable_scp_and_restconf_all pattern
         futures = {
-            executor.submit(get_flash_free_space, row, username, password): row['Hostname']
+            executor.submit(get_flash_free_space, row, username, password, secret): row['Hostname']
             for _, row in valid_devices_df.iterrows()
         }
 
@@ -710,7 +731,7 @@ def get_flash_free_space_all(valid_devices_df, username, password):
 
 # PUSH COMMANDS FOR BOOT VARIABLE AND INSTALL UPGRADE
 # ---------------------------------------------------
-def install_ios_image(row, username, password):
+def install_ios_image(row, username, password, secret):
 
     """
     PURPOSE
@@ -737,6 +758,7 @@ def install_ios_image(row, username, password):
     row      (pd.Series): A single DataFrame row containing at minimum 'OOBM IP Address', 'Hostname', and 'IOS Image Path' columns.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
     DEAD DEVICE DETECTION
     ---------------------
@@ -761,7 +783,8 @@ def install_ios_image(row, username, password):
             within one 10-second poll interval rather than waiting for read_timeout.
 
     The watchdog is always stopped via a threading.Event in the finally block,
-    regardless of whether the function succeeds, fails, or raises an exception.
+    regardless of whether the function succeeds, fails, or raises an exception. The SSH session is
+    also shut down at the end.
 
     RETURN VALUE
     ------------
@@ -789,6 +812,7 @@ def install_ios_image(row, username, password):
             host=ip,
             username=username,
             password=password,
+            secret=secret,
             session_timeout=900,
             keepalive=60
         )
@@ -804,7 +828,7 @@ def install_ios_image(row, username, password):
         # Netmiko uses Paramiko under the hood (a Python SSH library). Paramiko wraps a normal TCP socket for the SSH connection. That TCP socket is managed 
         # by your operating system. When we set sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1), we are telling the operating system:
 
-        ##Hey OS, please monitor this TCP connection for me. If it goes silent for too long, send probe packets to check if the remote side is still alive.##
+        # "Hey OS, please monitor this TCP connection for me. If it goes silent for too long, send probe packets to check if the remote side is still alive."
 
         # The key thing is: Netmiko and Paramiko don't send the keepalive probes themselves — the OS kernel does it in the background, independently of Python. Netmiko 
         # doesn't even know it's happening.
@@ -969,24 +993,23 @@ def install_ios_image(row, username, password):
             time.sleep(5)
 
             ### <=== INSTALL ACTIVATE ===> ###
+            # Activates the new image. This can take several minutes depending
+            # on image size — read_timeout is set generously to avoid premature timeout.
             #------------------------------------------------------------
             logger.info(f"'{hostname}' ({ip}): running install activate")
             #------------------------------------------------------------
 
-
-            # Wait for the [y/n] confirmation prompt before answering —
-            # send_command blocks until the prompt appears
+            # Wait for the [y/n] confirmation prompt before answering — 'send_command' blocks until the prompt appears
             
             # Command list. This is a list of lists with each element of the inner list being the command to send and the pattern to search for.
             cmd_list = [
                     ['install activate', r"This operation may require a reload"],
-                    #  Use a null-string to indicate that we want to automatically search for the trailing prompt as the pattern.
                     ['y', r"Starting Activate"],
                 ]
             
             activate_output = connection.send_multiline(
                 cmd_list,
-                read_timeout=120
+                read_timeout=900
             )
             # activate_output = connection.send_command(
             #     'install activate',
@@ -1004,7 +1027,6 @@ def install_ios_image(row, username, password):
                 #-------------------------------------------------------------------------------------------------
                 logger.info(f"'{hostname}' ({ip}): install activate sent — device reloading -- {activate_output}")
                 #-------------------------------------------------------------------------------------------------
-                connection.disconnect()
                 return index, 'INSTALL_TRIGGERED'
                             
     except NetmikoAuthenticationException:
@@ -1031,9 +1053,15 @@ def install_ios_image(row, username, password):
     finally:
         if _stop_watchdog is not None:
             _stop_watchdog.set()  # Stop the watchdog thread regardless of outcome
+        
+        # Always end up with a tear down of the SSH session    
+        try:
+            connection.disconnect()
+        except Exception:
+            pass
 
 # Thread pool -- Called by 'populate_install_status_column' from 'excel_and_data_ops'
-def install_ios_image_all(confirmed_df, username, password):
+def install_ios_image_all(confirmed_df, username, password, secret):
 
     """
     PURPOSE
@@ -1050,6 +1078,7 @@ def install_ios_image_all(confirmed_df, username, password):
                                  confirmed for install — subset of install_eligible_devices_df.
     username     (str):          Device SSH username.
     password     (str):          Device SSH password.
+    secret       (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1065,7 +1094,7 @@ def install_ios_image_all(confirmed_df, username, password):
 
         # Keyed by dict to avoid tuple unpacking ambiguity on the DataFrame index
         futures = {
-            executor.submit(install_ios_image, row, username, password): {'index': idx, 'hostname': row['Hostname']}
+            executor.submit(install_ios_image, row, username, password, secret): {'index': idx, 'hostname': row['Hostname']}
             for idx, row in confirmed_df.iterrows()
         }
 
@@ -1092,7 +1121,7 @@ def install_ios_image_all(confirmed_df, username, password):
 
 # PUSH INSTALL COMMIT
 # -------------------
-def commit_ios_install(row, username, password):
+def commit_ios_install(row, username, password, secret):
 
     """
     PURPOSE
@@ -1107,6 +1136,7 @@ def commit_ios_install(row, username, password):
     row      (pd.Series): A single DataFrame row containing device information.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1127,7 +1157,8 @@ def commit_ios_install(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
         #------------------------------------------------------------------
@@ -1170,7 +1201,7 @@ def commit_ios_install(row, username, password):
             pass
 
 # Thread pool -- Called by 'populate_post_install_status_column' from 'excel_and_data_ops'
-def commit_ios_install_all(online_devices_df, username, password):
+def commit_ios_install_all(online_devices_df, username, password, secret):
 
     """
     PURPOSE
@@ -1185,6 +1216,7 @@ def commit_ios_install_all(online_devices_df, username, password):
                                       came back online after the reload.
     username          (str):          Device SSH username.
     password          (str):          Device SSH password.
+    secret            (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1200,7 +1232,7 @@ def commit_ios_install_all(online_devices_df, username, password):
 
         # Keyed by dict to avoid tuple unpacking ambiguity on the DataFrame index
         futures = {
-            executor.submit(commit_ios_install, row, username, password): {'index': idx, 'hostname': row['Hostname']}
+            executor.submit(commit_ios_install, row, username, password, secret): {'index': idx, 'hostname': row['Hostname']}
             for idx, row in online_devices_df.iterrows()
         }
 
@@ -1227,7 +1259,7 @@ def commit_ios_install_all(online_devices_df, username, password):
 
 # REMOVE INACTIVE IOS PACKAGES FROM DEVICES THAT THE INSTALL ADD SUCCEDED
 # -----------------------------------------------------------------------
-def remove_inactive_ios(row, username, password):
+def remove_inactive_ios(row, username, password, secret):
 
     """
     PURPOSE
@@ -1243,6 +1275,7 @@ def remove_inactive_ios(row, username, password):
     row      (pd.Series): A single DataFrame row containing device information.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1264,7 +1297,8 @@ def remove_inactive_ios(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
         #-------------------------------------------------------------------
@@ -1274,15 +1308,15 @@ def remove_inactive_ios(row, username, password):
         # Command list. This is a list of lists with each element of the inner list being the command to send and the pattern to search for.
         cmd_list = [
                 ['install remove inactive', r"Do you want to remove the above files"],
-                #  Use a null-string to indicate that we want to automatically search for the trailing prompt as the pattern.
-                ['y', r"Deleting file"]
+                ['y', ""],
             ]
         
         remove_output = connection.send_multiline(
             cmd_list,
-            read_timeout=120
+            read_timeout=300
         )
 
+        # NOTE: BUG002
         # If there is nothing to remove the device skips the prompt entirely
         # and returns immediately — detect this before trying to answer
         if 'No inactive' in remove_output or 'Nothing to clean' in remove_output:
@@ -1320,7 +1354,8 @@ def remove_inactive_ios(row, username, password):
         except Exception:
             pass
 
-def remove_inactive_ios_all(valid_devices_df, username, password):
+# Thread pool -- Called by 'populate_cleaned_inactive_column' from 'excel_and_data_ops'
+def remove_inactive_ios_all(valid_devices_df, username, password, secret):
 
     """
     PURPOSE
@@ -1335,6 +1370,7 @@ def remove_inactive_ios_all(valid_devices_df, username, password):
                                      to INSTALL_TRIGGERED devices only.
     username         (str):          Device SSH username.
     password         (str):          Device SSH password.
+    secret           (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1349,8 +1385,6 @@ def remove_inactive_ios_all(valid_devices_df, username, password):
     triggered_devices = valid_devices_df[
         valid_devices_df['Install Status'] == 'INSTALL_TRIGGERED'
     ]
-
-    results = {}
 
     # Pre-populate N/A for all non-triggered devices upfront —
     # cleanup is not applicable for devices that never received an install
@@ -1370,7 +1404,7 @@ def remove_inactive_ios_all(valid_devices_df, username, password):
 
         # Keyed by dict to avoid tuple unpacking ambiguity on the DataFrame index
         futures = {
-            executor.submit(remove_inactive_ios, row, username, password): {'index': idx, 'hostname': row['Hostname']}
+            executor.submit(remove_inactive_ios, row, username, password, secret): {'index': idx, 'hostname': row['Hostname']}
             for idx, row in triggered_devices.iterrows()
         }
 
@@ -1397,7 +1431,7 @@ def remove_inactive_ios_all(valid_devices_df, username, password):
 
 # CANCEL ALL ACTIVE TRANSFERS
 # ---------------------------
-def cancel_single_device(row, username, password):
+def cancel_single_device(row, username, password, secret):
 
     """
     PURPOSE
@@ -1416,6 +1450,7 @@ def cancel_single_device(row, username, password):
     row      (pd.Series): A single DataFrame row containing at minimum 'OOBM IP Address', 'Hostname', and 'IOS Image Path'.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1438,12 +1473,13 @@ def cancel_single_device(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
-        #----------------------------------------------------
-        logger.warning(f"Sending 'clear line vty *' to {ip}")
-        #----------------------------------------------------
+        #-----------------------------------------------------------------
+        logger.warning(f"Sending 'clear line vty' for lines 0-16 to {ip}")
+        #-----------------------------------------------------------------
         for vty_line in range(0, 16):
             connection.send_command(f'clear line vty {vty_line}',
                                     expect_string=r'#|\[confirm\]')
@@ -1465,7 +1501,8 @@ def cancel_single_device(row, username, password):
             device_type='cisco_ios',
             host=ip,
             username=username,
-            password=password
+            password=password,
+            secret=secret
         )
 
         # Delete the partially copied IOS image file
@@ -1485,10 +1522,8 @@ def cancel_single_device(row, username, password):
         #---------------------------------------------------------------
         return index, 'FILE_DELETE_FAILED'
 
-    return index, 'VTY_CLEAR_FAILED' # fallback
-
-# Thread pool -- Called by 'populate_post_install_columns' from 'excel_and_data_ops'
-def cancel_active_transfers_all(selected_devices_df, username, password):
+# Thread pool -- Called by 'program_gui.py:_on_cancel_clicked' from 'program_gui.py'
+def cancel_active_transfers_all(selected_devices_df, username, password, secret):
 
     """
     PURPOSE
@@ -1504,6 +1539,7 @@ def cancel_active_transfers_all(selected_devices_df, username, password):
                                         active transfers.
     username            (str):          Device SSH username.
     password            (str):          Device SSH password.
+    secret              (str):          Device enable secret (empty string if not required).
 
 
     RETURN VALUE
@@ -1521,9 +1557,9 @@ def cancel_active_transfers_all(selected_devices_df, username, password):
     #---------------------------------------------------------------------------------
 
     results = {}
-    with ThreadPoolExecutor(max_workers=len(selected_devices_df)) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {
-            executor.submit(cancel_single_device, row, username, password):
+            executor.submit(cancel_single_device, row, username, password, secret):
                 {'index': idx, 'hostname': row['Hostname']}
             for idx, row in selected_devices_df.iterrows()
         }
@@ -1547,10 +1583,77 @@ def cancel_active_transfers_all(selected_devices_df, username, password):
 
     return results
 
+###################################################################################################################################
+
+### FOR COMMAND PUSHER MODE ONLY
+
+
+# OUTPUT FORMATTERS FOR push_commands
+# ------------------------------------
+def _format_cmd_error(output_lines, remaining_commands):
+
+    """
+    PURPOSE
+    -------
+    Build the terminal-style output text for a mid-loop command failure
+    (BAD_COMMAND, CONFIG_ERROR, TIMEOUT). If any commands were left unexecuted, lists them clearly.
+
+    
+    ARGUMENTS
+    ---------
+    output_lines      (list[str]): Terminal lines accumulated so far.
+    remaining_commands(list[str]): Commands that were never sent.
+
+    
+    RETURN VALUE
+    ------------
+    str: Formatted output text ready for the GUI output area.
+    """
+
+    text = "\n".join(output_lines)
+    if remaining_commands:
+        text += f"\n\n{'─' * 52}\n"
+        text += f"The following command(s) were not pushed:\n"
+        text += "\n".join(f" {cmd}" for cmd in remaining_commands)
+    return text
+
+def _format_connection_error(result_code, commands):
+
+    """
+    PURPOSE
+    -------
+    Build the output text for a connection-level failure (AUTH_BAD, OFFLINE,
+    SSH_ERROR, UNEXPECTED_ERROR). No commands were pushed at all, so the full
+    list is shown as unpushed.
+
+    
+    ARGUMENTS
+    ---------
+    result_code (str):       One of 'AUTH_BAD', 'OFFLINE', 'SSH_ERROR', 'UNEXPECTED_ERROR'.
+    commands    (list[str]): Full command list — none of which were executed.
+
+    
+    RETURN VALUE
+    ------------
+    str: Formatted output text ready for the GUI output area.
+    """
+
+    descriptions = {
+        'AUTH_BAD':         'SSH authentication failed — credentials rejected by the device.',
+        'OFFLINE':          'Device unreachable — SSH connection could not be established.',
+        'SSH_ERROR':        'SSH protocol error — cipher/key exchange or session failure.',
+        'UNEXPECTED_ERROR': 'An unexpected error occurred while establishing the SSH connection.',
+    }
+    text = descriptions.get(result_code, '') + "\n"
+    if commands:
+        text += f"\nNo commands were pushed:\n"
+        text += "\n".join(f"  •  {cmd}" for cmd in commands)
+    return text
+
 
 # PUSH EXEC COMMANDS TO A SINGLE DEVICE
 # --------------------------------------
-def push_commands(row, username, password, commands):
+def push_commands(row, username, password, secret, commands):
 
     """
     PURPOSE
@@ -1560,117 +1663,154 @@ def push_commands(row, username, password, commands):
     exec-mode only — no config mode is entered. If the user needs config-mode
     commands, they must include 'configure terminal' as the first line.
 
+    Output is accumulated in terminal style (prompt + command + device response)
+    and returned alongside the status code for display in the GUI.
+
 
     ARGUMENTS
     ---------
     row      (pd.Series): A single DataFrame row containing 'OOBM IP Address' and 'Hostname'.
     username (str):       Device SSH username.
     password (str):       Device SSH password.
+    secret   (str):       Device enable secret (empty string if not required).
     commands (list[str]): Ordered list of exec-mode CLI commands to send.
 
 
     RETURN VALUE
     ------------
-    Tuple of (index, result) where result is one of:
-        'SUCCESS'     — All commands sent without error.
-        'BAD_COMMAND' — A command's response contained an IOS error pattern (% Invalid input, etc.).
-        'AUTH_BAD'    — Device rejected the credentials.
-        'OFFLINE'     — SSH connection could not be established.
-        'TIMEOUT'     — Read timeout — device was slow or unresponsive.
-        'CONFIG_ERROR'— Syntax or unsupported command detected by Netmiko.
-        'SSH_ERROR'   — SSH cipher/key exchange/session failure.
+    Tuple of (index, status, output_text) where status is one of:
+        'SUCCESS'          — All commands sent without error.
+        'BAD_COMMAND'      — A command's response contained an IOS error pattern.
+        'AUTH_BAD'         — Device rejected the credentials.
+        'OFFLINE'          — SSH connection could not be established.
+        'TIMEOUT'          — Read timeout on a specific command.
+        'CONFIG_ERROR'     — Syntax or unsupported command detected by Netmiko.
+        'SSH_ERROR'        — SSH cipher/key exchange/session failure.
         'UNEXPECTED_ERROR' — Any other unhandled exception.
+    output_text is a terminal-style string of everything that happened on the device.
     """
 
     ip       = row['OOBM IP Address']
     hostname = row['Hostname']
     index    = row.name
 
+    # Error patterns returned by IOS when a command is invalid
+    error_patterns = [
+        "% Invalid input",
+        "% Incomplete command",
+        "% Ambiguous command",
+        "% Bad IP address or host name",
+        "Unknown command or computer name, or unable to find computer address",
+        "Command authorization failed",
+        "Error deleting",
+    ]
+
+    # ── ESTABLISH CONNECTION ──────────────────────────────────────────────────
     try:
         connection = ConnectHandler(
             device_type = 'cisco_ios',
             host        = ip,
             username    = username,
             password    = password,
+            secret      = secret,
         )
 
-        # Error patterns returned by IOS when a command is invalid
-        error_patterns = [
-            "% Invalid input",
-            "% Incomplete command",
-            "% Ambiguous command",
-            "% Bad IP address or host name%",
-            "Unknown command or computer name, or unable to find computer address"
-        ]
+    except NetmikoAuthenticationException:
+        #--------------------------------------------------------------------------------
+        logger.error(f"Authentication failed on '{hostname}' ({ip}) during command push")
+        #--------------------------------------------------------------------------------
+        return index, 'AUTH_BAD', _format_connection_error('AUTH_BAD', commands)
 
-        for cmd in commands:
-            
-            #------------------------------------------------------------------
-            logger.info(f"Pushing command(s) to '{hostname}' ({ip}) — '{cmd}'")
-            #------------------------------------------------------------------
-            output = connection.send_command(cmd, expect_string=r'(?:\([\w\-]+\))?[>#]\s*$', read_timeout=30)
+    except NetmikoTimeoutException:
+        #------------------------------------------------------------------------------
+        logger.error(f"Could not reach '{hostname}' ({ip}) for command push (timeout)")
+        #------------------------------------------------------------------------------
+        return index, 'OFFLINE', _format_connection_error('OFFLINE', commands)
 
-            # # — exec prompt
-            # > — unprivileged prompt
-            # (config)# — global config
-            # (config-if)#, (config-router)#, etc. — sub-mode prompts
+    except SSHException:
+        #------------------------------------------------------------------------------------
+        logger.error(f"SSH error on '{hostname}' ({ip}) — cipher/key exchange/session issue")
+        #------------------------------------------------------------------------------------
+        return index, 'SSH_ERROR', _format_connection_error('SSH_ERROR', commands)
 
-            if any(pattern in output for pattern in error_patterns):
-                connection.disconnect()
-                #---------------------------------------------------------------------------------------
-                logger.error(f"Bad command on '{hostname}' ({ip}) — '{cmd}' returned: {output.strip()}")
-                #---------------------------------------------------------------------------------------
-                return index, 'BAD_COMMAND'
-
-        connection.disconnect()
-
-        #------------------------------------------------------------------
-        logger.info(f"Commands pushed successfully to '{hostname}' ({ip})")
-        #------------------------------------------------------------------
-
-        return index, 'SUCCESS'
-    
     except Exception as e:
+        #-----------------------------------------------------------------------------------------------------
+        logger.error(f"Unexpected error on '{hostname}' ({ip}) during command push — {type(e).__name__}: {e}")
+        #-----------------------------------------------------------------------------------------------------
+        return index, 'UNEXPECTED_ERROR', _format_connection_error('UNEXPECTED_ERROR', commands)
 
-        if isinstance(e, NetmikoAuthenticationException):
-            #--------------------------------------------------------------------------------
-            logger.error(f"Authentication failed on '{hostname}' ({ip}) during command push")
-            #--------------------------------------------------------------------------------
-            return index, 'AUTH_BAD'
 
-        elif isinstance(e, NetmikoTimeoutException):
-            #------------------------------------------------------------------------------
-            logger.error(f"Could not reach '{hostname}' ({ip}) for command push (timeout)")
-            #------------------------------------------------------------------------------
-            return index, 'OFFLINE'
+    # ── PUSH COMMANDS ────────────────────────────────────────────────────────
+    try:
+        prompt = connection.find_prompt()   # e.g. 'Router#' or 'Switch(config)#'
+    except Exception:
+        prompt = "#"                        # Fallback if prompt detection fails
 
-        elif isinstance(e, ReadTimeout):
-            #----------------------------------------------------------------------------------------
-            logger.error(f"Read timeout on '{hostname}' ({ip}) – device may be slow or unresponsive")
-            #----------------------------------------------------------------------------------------
-            return index, 'TIMEOUT'
+    output_lines = []   # Accumulated terminal-style lines
 
-        elif isinstance(e, ConfigInvalidException):
+    for cmd_idx, cmd in enumerate(commands):
+
+        #---------------------------------------------------------------
+        logger.info(f"Pushing command to '{hostname}' ({ip}) — '{cmd}'")
+        #---------------------------------------------------------------
+
+        output_lines.append(f"{prompt} {cmd}")  # Simulate the typed command at the prompt
+
+        try:
+            output = connection.send_command(
+                cmd,
+                expect_string = r'(?:\([\w\-]+\))?[>#]\s*$',
+                read_timeout  = 30
+            )
+
+        except ReadTimeout:
+            #-------------------------------------------------------------------------------------
+            logger.error(f"Read timeout on '{hostname}' ({ip}) — command '{cmd}' did not respond")
+            #-------------------------------------------------------------------------------------
+            output_lines.append("[read timeout — device did not respond within 30 s]")
+            connection.disconnect()
+            return index, 'TIMEOUT', _format_cmd_error(output_lines, commands[cmd_idx + 1:])
+
+        except ConfigInvalidException:
             #------------------------------------------------------------------------------------------
             logger.error(f"Configuration error on '{hostname}' ({ip}) — syntax or unsupported command")
             #------------------------------------------------------------------------------------------
-            return index, 'CONFIG_ERROR'
+            output_lines.append("[configuration syntax error detected by Netmiko]")
+            connection.disconnect()
+            return index, 'CONFIG_ERROR', _format_cmd_error(output_lines, commands[cmd_idx + 1:])
 
-        elif isinstance(e, SSHException):
-            #------------------------------------------------------------------------------------
-            logger.error(f"SSH error on '{hostname}' ({ip}) — cipher/key exchange/session issue")
-            #------------------------------------------------------------------------------------
-            return index, 'SSH_ERROR'
+        except Exception as e:
+            #-----------------------------------------------------------------------------------------------------
+            logger.error(f"Unexpected error on '{hostname}' ({ip}) during send_command — {type(e).__name__}: {e}")
+            #-----------------------------------------------------------------------------------------------------
+            output_lines.append(f"[unexpected error: {type(e).__name__}]")
+            connection.disconnect()
+            return index, 'UNEXPECTED_ERROR', _format_cmd_error(output_lines, commands[cmd_idx + 1:])
 
-        else:
-            # Catch-all for any other exception
-            #-----------------------------------------------------------------------------------------------------
-            logger.error(f"Unexpected error on '{hostname}' ({ip}) during command push — {type(e).__name__}: {e}")
-            #-----------------------------------------------------------------------------------------------------
-            return index, 'UNEXPECTED_ERROR'
+        # Append device response only when there is actual content
+        if output.strip():
+            output_lines.append(output)
+
+        if any(pattern in output for pattern in error_patterns):
+            #---------------------------------------------------------------------------------------
+            logger.error(f"Bad command on '{hostname}' ({ip}) — '{cmd}' returned: {output.strip()}")
+            #---------------------------------------------------------------------------------------
+            connection.disconnect()
+            return index, 'BAD_COMMAND', _format_cmd_error(output_lines, commands[cmd_idx + 1:])
+
+    # All commands completed — append the final idle prompt to close the session visually
+    output_lines.append(prompt)
+
+    connection.disconnect()
+
+    #------------------------------------------------------------------
+    logger.info(f"Commands pushed successfully to '{hostname}' ({ip})")
+    #------------------------------------------------------------------
+
+    return index, 'SUCCESS', "\n".join(output_lines)
         
-# Thread pool -- Called by '' from 'program_gui'
-def push_commands_all(selected_df, username, password, commands):
+# Thread pool -- Called by 'PushCommandsWorker' from 'program_gui'
+def push_commands_all(selected_df, username, password, secret, commands):
 
     """
     PURPOSE
@@ -1686,12 +1826,13 @@ def push_commands_all(selected_df, username, password, commands):
                                 Must contain 'OOBM IP Address' and 'Hostname'.
     username    (str):          Device SSH username.
     password    (str):          Device SSH password.
+    secret      (str):          Device enable secret (empty string if not required).
     commands    (list[str]):    Ordered list of exec-mode CLI commands to send.
 
 
     RETURN VALUE
     ------------
-    List of (index, result) tuples — one per device.
+    List of (index, status, output_text) tuples — one per device.
     index matches the original DataFrame index for identification.
     """
 
@@ -1699,22 +1840,26 @@ def push_commands_all(selected_df, username, password, commands):
 
     with ThreadPoolExecutor(max_workers=10) as executor:
 
+        # Store (df_index, hostname) in the futures dict so the except branch
+        # can still produce a valid result tuple if the future itself raises.
         futures = {
-            executor.submit(push_commands, row, username, password, commands): row['Hostname']
+            executor.submit(push_commands, row, username, password, secret, commands):
+                (row.name, row['Hostname'])
             for _, row in selected_df.iterrows()
         }
 
         for future in as_completed(futures):
-            hostname = futures[future]
+            idx, hostname = futures[future]
+
             try:
-                index, result = future.result()
-                results.append((index, result))
-                #-------------------------------------------------
-                logger.info(f"'{hostname}' push result: {result}")
-                #-------------------------------------------------
+                index, status, output = future.result()
+                results.append((index, status, output))
+
             except Exception as e:
                 #----------------------------------------------------------------------
                 logger.error(f"Unexpected error pushing commands to '{hostname}': {e}")
                 #----------------------------------------------------------------------
+                # Append a fallback result so the device tab is never left blank
+                results.append((idx, 'UNEXPECTED_ERROR', _format_connection_error('UNEXPECTED_ERROR', commands)))
 
     return results

@@ -5,3 +5,12 @@ during this commands push, the whole program will freeze for 15 minutes (the 're
 notifying the user via the GUI. The Paramiko TCP socket will be closed in time (just 70 seconds after the loss of connectivity)
 but Netmiko will still try to read the output, resulting in the GUI never getting the error codes in time. The error will be notified 
 on time in the log file.
+
+
+BUG 0002
+--------
+'send_multiline' sends 'install remove inactive' and waits for the pattern 'Do you want to remove the above files.' If there's nothing to 
+remove (very unlikely after an update, IOS skips the prompt entirely and returns to the exec prompt immediately — the expected pattern never 
+arrives, so 'send_multiline' sits and waits for the full 'read_timeout=300' seconds before raising a 'ReadTimeout', which gets caught as UNEXPECTED_ERROR. 
+The NOTHING_TO_CLEAN check at line 1319 is never reached in this path. One possible fix is to use 'send_command' for the first step, inspect the output, 
+and only send 'y' if the prompt actually appeared. However, results with that architecture have been failing several times due to the way Netmiko handles interactive prompts.

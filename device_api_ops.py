@@ -55,12 +55,13 @@ async def wait_for_restconf(session, host, username, password, semaphore, timeou
 
     ARGUMENTS
     ---------
-    session  (aiohttp.ClientSession): Shared async HTTP session to use for requests.
-    host     (str):                   Device IP address or hostname.
-    username (str):                   Device username for RESTCONF authentication.
-    password (str):                   Device password for RESTCONF authentication.
-    timeout  (int):                   Maximum number of seconds to wait before giving up. Default: 180.
-    interval (int):                   Number of seconds to wait between each poll attempt. Default: 15.
+    session   (aiohttp.ClientSession):  Shared async HTTP session to use for requests.
+    host      (str):                    Device IP address or hostname.
+    username  (str):                    Device username for RESTCONF authentication.
+    password  (str):                    Device password for RESTCONF authentication.
+    semaphore (asyncio.Semaphore):      Shared semaphore that limits concurrent polling sessions.
+    timeout   (int):                    Maximum number of seconds to wait before giving up.
+    interval  (int):                    Number of seconds to wait between each poll attempt.
 
 
     RETURN VALUE
@@ -73,28 +74,28 @@ async def wait_for_restconf(session, host, username, password, semaphore, timeou
     deadline = time.monotonic() + timeout  # real wall-clock deadline
 
     while time.monotonic() < deadline:
-            try:
-                async with semaphore:
-                    async with session.get(url, auth=aiohttp.BasicAuth(username, password), ssl=False, timeout=aiohttp.ClientTimeout(total=10)) as response:
+        try:
+            async with semaphore:
+                async with session.get(url, auth=aiohttp.BasicAuth(username, password), ssl=False, timeout=aiohttp.ClientTimeout(total=10)) as response:
 
-                        # Any of these status codes confirm the HTTP stack is up and serving requests.
-                        # 401/403 are still valid — they mean RESTCONF is running but rejected the credentials,
-                        # which is fine here since we are only checking operational readiness, not authenticating
-                        if response.status in (200, 401, 403):
-                            #--------------------------------------------------------------------------------------
-                            logger.info(f"!!! Success checking RESTCONF operational for {host}: {response.status}")
-                            #--------------------------------------------------------------------------------------
-                            return True
+                    # Any of these status codes confirm the HTTP stack is up and serving requests.
+                    # 401/403 are still valid — they mean RESTCONF is running but rejected the credentials,
+                    # which is fine here since we are only checking operational readiness, not authenticating
+                    if response.status in (200, 401, 403):
+                        #--------------------------------------------------------------------------------------
+                        logger.info(f"!!! Success checking RESTCONF operational for {host}: {response.status}")
+                        #--------------------------------------------------------------------------------------
+                        return True
 
-            except Exception:
-                # Request failed — RESTCONF is not ready yet. Swallow the exception and retry
-                pass
+        except Exception:
+            # Request failed — RESTCONF is not ready yet. Swallow the exception and retry
+            pass
 
-            # Only sleep if there's still time left — avoids one extra interval overshoot
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            await asyncio.sleep(min(interval, remaining))
+        # Only sleep if there's still time left — avoids one extra interval overshoot
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        await asyncio.sleep(min(interval, remaining))
 
 
     # Timeout exceeded — RESTCONF never became operative on this device
@@ -115,11 +116,11 @@ async def get_all_restconf_status(eligible_devices, username, password, timeout,
 
     ARGUMENTS
     ---------
-    eligible_devices (pd.DataFrame): DataFrame slice containing only ONLINE/AUTH_OK devices,
-                                     with at minimum an 'OOBM IP Address' column.
+    eligible_devices (pd.DataFrame): DataFrame slice containing only ONLINE/AUTH_OK devices, with at minimum an 'OOBM IP Address' column.
     username         (str):          Device username for RESTCONF authentication.
     password         (str):          Device password for RESTCONF authentication.
     timeout          (int):          Time range sending API requests to check for status.
+    interval         (int):          Number of seconds to wait between each poll attempt.
 
     RETURN VALUE
     ------------
@@ -161,15 +162,18 @@ async def get_current_version(session, ip, username, password, semaphore):
     
     ARGUMENTS
     ---------
-    session  (aiohttp.ClientSession): Shared async HTTP session.
-    ip       (str):                   Device OOBM IP address.
-    username (str):                   Device username.
-    password (str):                   Device password.
+    session   (aiohttp.ClientSession): Shared async HTTP session.
+    ip        (str):                   Device OOBM IP address.
+    username  (str):                   Device username.
+    password  (str):                   Device password.
+    semaphore (asyncio.Semaphore):     Shared semaphore that limits concurrent requests.
 
     
     RETURN VALUE
     ------------
-    (ip, version_string) tuples in all cases
+    Tuple of (ip, version_string) where version_string is the IOS version as a string
+    (e.g. '17.13.1a'), or None if the request failed, returned a non-200 status, or
+    the version string could not be parsed from the response body.
     """
 
     # RESTCONF endpoint for device hardware operational data — contains the IOS version string
@@ -267,4 +271,7 @@ async def get_all_versions(valid_devices_df, username, password):
             return processed_results
             
     except Exception as e:
+        #------------------------------------------------------------
+        logger.error(f"Unexpected error from get_all_versions — {e}")
+        #------------------------------------------------------------
         return []

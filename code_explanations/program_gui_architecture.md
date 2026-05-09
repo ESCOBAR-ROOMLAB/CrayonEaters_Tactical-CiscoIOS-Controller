@@ -7,18 +7,64 @@
 ```
 program_gui.py
 │
-├── ErrorDialog(QDialog)              — scarlet modal, display-only
-├── WarningDialog(QDialog)            — gold modal, display-only, non-blocking (open())
-├── Credentials_and_mode_Dialog(QDialog)  — collects username, password, mode
-├── TransferModeDialog(QDialog)       — choose Sequential vs Threaded transfer
-├── SummaryDialog(QDialog)            — gold modal, displays update summary
-├── PushCommandsDialog(QDialog)       — 3-phase CLI command push window
+├── ErrorDialog(QDialog)                 — scarlet modal, display-only
+├── WarningDialog(QDialog)               — gold modal, display-only, non-blocking (open())
+├── Credentials_and_mode_Dialog(QDialog) — collects username, password, enable secret, and mode
+├── TransferModeDialog(QDialog)          — choose Sequential vs Threaded transfer
+├── SummaryDialog(QDialog)               — gold modal, displays update summary
+├── PushCommandsDialog(QDialog)          — 3-phase CLI command push window
 │
-├── MainWindow(QMainWindow)           — root application window
+├── MainWindow(QMainWindow)              — root application window
 │
-├── ShowDevicesWorker(QObject)        — background: reads Excel, scans devices
-├── PushCommandsWorker(QObject)       — background: pushes CLI commands
-└── UpdateWorker(QObject)             — background: SCP transfer + install pipeline
+├── ShowDevicesWorker(QObject)           — background: reads Excel, scans devices
+├── PushCommandsWorker(QObject)          — background: pushes CLI commands
+└── UpdateWorker(QObject)                — background: SCP transfer + install pipeline
+```
+
+---
+
+## Color Constants (module-level)
+
+Defined at the top of the file. Used in stylesheets via f-string interpolation.
+
+```
+Background tiers:
+  BG_BASE, BG_PANEL             — primary and panel backgrounds
+  BG_ROW, BG_ROW_ALT            — table row alternating colors
+
+Borders:
+  BORDER, BORDER_LIGHT          — default and hover border colors
+
+Accent (USMC Scarlet):
+  ACCENT, ACCENT_MID            — base and brighter scarlet
+  ACCENT_LIGHT, ACCENT_SHINE    — hover and highlight scarlet
+  ACCENT_DIM                    — dark scarlet tint for selected backgrounds
+
+Silver / Text:
+  SILVER, SILVER_BRIGHT         — metallic silver, bright silver
+  SILVER_DIM                    — muted silver
+  TEXT_PRIMARY, TEXT_SECONDARY  — primary and secondary text
+  TEXT_MUTED, TEXT_HEADER       — muted and header text colors
+
+Gold:
+  GOLD, GOLD_LIGHT              — brass/gold base and hover
+
+Danger (destructive actions / CANCEL button):
+  DANGER, DANGER_LIGHT          — scarlet red base and hover
+  DANGER_DIM                    — dark scarlet tint for warning backgrounds
+
+Disabled buttons:
+  BTN_DISABLED, BTN_DIS_TEXT    — dark navy background, muted navy text
+
+Green (PUSH / START buttons):
+  GREEN, GREEN_MID              — base and gradient midpoint
+  GREEN_LIGHT, GREEN_SHINE      — hover and shine highlight
+  SUCCESS_GREEN                 — result state label in PushCommandsDialog
+
+Device tab result tints (PushCommandsDialog only):
+  TAB_SUCCESS, TAB_SUCCESS_BDR, TAB_SUCCESS_TXT   — SUCCESS state
+  TAB_WARN,    TAB_WARN_BDR,    TAB_WARN_TXT      — partial-error state (BAD_COMMAND, CONFIG_ERROR, TIMEOUT)
+  TAB_ERR,     TAB_ERR_BDR,     TAB_ERR_TXT       — full-error state (AUTH_BAD, OFFLINE, SSH_ERROR, …)
 ```
 
 ---
@@ -43,7 +89,7 @@ MainWindow                ──► ErrorDialog(title, message)
 MainWindow                ──► WarningDialog(title, message)   [same layout as Error but gold]
   _on_update_warning            .open()  ← non-blocking, WA_DeleteOnClose set
 
-MainWindow                ──► SummaryDialog(title, message)   [same layout but gold header]
+MainWindow                ──► SummaryDialog(title, message)   [same layout but gold header + CLOSE button]
   _on_update_finished           .exec_()
 ```
 
@@ -51,12 +97,12 @@ MainWindow                ──► SummaryDialog(title, message)   [same layout
 
 ## Credentials_and_mode_Dialog
 
-Collects username, password, and mode before any device scan starts.
+Collects username, password, optional enable secret, and mode before any device scan starts.
 
 ```
 WIDGET TREE
 ───────────
-QDialog (470 × 360, fixed)
+QDialog (470 × 510, fixed)
  └── QVBoxLayout
       ├── QLabel              "Enter credentials"  (gold header)
       ├── QFrame              scarlet separator
@@ -64,6 +110,11 @@ QDialog (470 × 360, fixed)
       ├── QHBoxLayout
       │    ├── QLineEdit      password input  (echo mode = Password)
       │    └── QPushButton    eye icon toggle  ──► _toggle_password_visibility()
+      ├── QCheckBox           "Use enable secret"  ──► _on_secret_checkbox_toggled()
+      ├── QLabel              secret warning label  (gold, advisory text)
+      ├── QHBoxLayout
+      │    ├── QLineEdit      secret_input  (echo mode = Password, disabled when unchecked)
+      │    └── QPushButton    eye icon toggle  ──► _toggle_secret_visibility()
       ├── QLabel              "Select mode"
       ├── QHBoxLayout
       │    ├── QPushButton    "UPDATER"        ──► _on_mode_selected('updater')
@@ -73,26 +124,37 @@ QDialog (470 × 360, fixed)
 METHOD FLOW
 ───────────
 __init__  →  _setup_ui()
-               └── connects textChanged on both fields → _update_submit_state()
+               └── connects textChanged on username, password, secret → _update_submit_state()
+               └── connects secret checkbox → _on_secret_checkbox_toggled()
                └── connects mode buttons → _on_mode_selected()
                └── connects SUBMIT → _on_submit()
 
 _toggle_password_visibility()   ← eye button clicked
     toggles QLineEdit.echoMode between Normal / Password
 
+_toggle_secret_visibility()     ← secret eye button clicked
+    toggles secret_input.echoMode between Normal / Password
+
+_on_secret_checkbox_toggled()   ← checkbox toggled
+    enables/disables secret_input and its eye toggle
+    calls _update_submit_state()
+
 _on_mode_selected(mode)         ← UPDATER or COMMAND PUSHER button clicked
-    stores self.selected_mode
+    stores self._mode
     highlights the chosen button, dims the other
     calls _update_submit_state()
 
-_update_submit_state()          ← called on every text change and mode selection
-    enables SUBMIT only when username, password, and mode are all set
+_update_submit_state()          ← called on every text change, checkbox toggle, and mode selection
+    enables SUBMIT only when username, password, mode are all set,
+    AND (secret checkbox unchecked OR secret field non-empty)
 
 _on_submit()                    ← SUBMIT clicked
+    validates fields
     calls self.accept()  →  exec_() returns QDialog.Accepted to caller
 
 GETTERS (called by MainWindow after exec_()):
     get_credentials()  →  (username, password)
+    get_secret()       →  enable secret string, or '' if checkbox was unchecked
     get_mode()         →  'updater' or 'command_pusher'
 ```
 
@@ -106,11 +168,13 @@ more than one device is selected (MainWindow skips it for single-device runs).
 ```
 WIDGET TREE
 ───────────
-QDialog (480 × ~300, fixed)
+QDialog (520 × 280, fixed)
  └── QVBoxLayout
-      ├── QLabel       warning text about transfer modes
-      ├── QPushButton  "SEQUENTIAL"  ──► _on_sequential()  →  accept()
-      └── QPushButton  "THREADED"    ──► _on_threaded()    →  accept()
+      ├── QLabel       title + explanation text about transfer modes
+      ├── stretch
+      └── QHBoxLayout
+           ├── QPushButton  "SEQUENTIAL"  ──► _on_sequential()  →  accept()
+           └── QPushButton  "THREADED"    ──► _on_threaded()    →  accept()
 
 METHOD FLOW
 ───────────
@@ -159,13 +223,22 @@ QDialog (700 × 520, fixed)
                      ├── QScrollArea  _tab_scroll  (h-scroll only, 46px fixed height)
                      │    └── QWidget  _tab_inner
                      │         └── QHBoxLayout  _tab_layout
-                     │              ├── QPushButton  "SW2"  (#tabBtn / #tabBtnActive)
+                     │              ├── QPushButton  "SW2"  (color-coded objectName)
                      │              ├── QPushButton  "SW3"
                      │              ├── ...one per device...
                      │              └── stretch  (keeps buttons left-aligned)
                      ├── QPlainTextEdit  _output_area  (read-only, both scrollbars)
                      └── QHBoxLayout
                           └── QPushButton  "PUSH MORE"  (#pushMoreBtn, green)
+
+TAB OBJECT NAMES (set by _tab_btn_name)
+────────────────────────────────────────
+  No result yet:     tabBtn / tabBtnActive
+  SUCCESS:           tabBtnSuccess / tabBtnSuccessActive        (discrete green tint)
+  Partial error:     tabBtnWarn / tabBtnWarnActive              (discrete amber tint)
+    (BAD_COMMAND, CONFIG_ERROR, TIMEOUT — some commands pushed)
+  Full error:        tabBtnErr / tabBtnErrActive                (discrete red tint)
+    (AUTH_BAD, OFFLINE, SSH_ERROR, UNEXPECTED_ERROR — no commands pushed)
 
 METHOD FLOW
 ───────────
@@ -176,9 +249,8 @@ SETUP
                ├── _build_phase_pushing()  → Page 1 widget
                └── _build_phase_output()   → Page 2 widget
 
-  set_push_context(selected_df, username, password)     ← called by MainWindow BEFORE exec_()
-      stores _selected_df, _username, _password
-      └── _build_device_tabs()   builds tab buttons into _tab_layout
+  set_push_context(selected_df, username, password, secret)     ← called by MainWindow BEFORE exec_()
+      stores _selected_df, _username, _password, _secret
 
 PHASE 0 → 1 (user clicks PUSH)
   _editor.textChanged ──► _on_text_changed()
@@ -198,24 +270,33 @@ PHASE 0 → 1 (user clicks PUSH)
 PHASE 1 → 2 (worker finishes)
   worker.finished ──► _on_push_finished(results)
       _pushing = False  (unblocks closeEvent)
-      stores _results = {df_index: result_str}
-      _build_device_tabs()  (rebuilds tabs for the new push cycle)
-      _select_device_tab(first_index)
+      stores _results = {df_index: (status, output_text)}
+      _build_device_tabs()  (builds tab buttons into _tab_layout)
+      _select_device_tab(first_index)  →  auto-selects first tab and shows its output
       _stack.setCurrentIndex(_PHASE_OUTPUT)
 
   worker.error ──► _on_push_error(error_msg)
       _pushing = False
-      fills _results with WORKER ERROR string for every device
+      fills _results with ('WORKER_ERROR', error_msg) for every device
       same tab build + auto-select + page switch as finished
 
 PHASE 2 — tab interaction
   tab button clicked ──► _select_device_tab(index)
-      updates objectName on all buttons (tabBtn / tabBtnActive)
-      calls unpolish + polish to force stylesheet re-evaluation
+      calls _tab_btn_name(idx, active) for every button to resolve objectName
+      calls unpolish + polish on each button to force stylesheet re-evaluation
       └── _show_device_output(index)
-               reads _results[index]
+               reads (status, output_text) from _results[index]
                reads hostname + IP from _selected_df via .at[]
-               sets _output_area.setPlainText(formatted string)
+               builds header: "Device : <hostname> (<ip>)\nResult : <status>\n───…"
+               appends output_text (terminal-style lines, or error description)
+               sets _output_area.setPlainText(header + output)
+
+  _tab_btn_name(idx, active)
+      looks up _results.get(idx)
+      if no result yet  →  tabBtn / tabBtnActive
+      if SUCCESS        →  tabBtnSuccess / tabBtnSuccessActive
+      if BAD_COMMAND, CONFIG_ERROR, TIMEOUT  →  tabBtnWarn / tabBtnWarnActive
+      else              →  tabBtnErr / tabBtnErrActive
 
 PHASE 2 → 0 (user clicks PUSH MORE)
   _btn_push_more.clicked ──► _on_push_more_clicked()
@@ -232,7 +313,7 @@ CALLER (MainWindow):
   _on_push_commands()
       builds selected_df from checked table rows
       dlg = PushCommandsDialog(self)
-      dlg.set_push_context(selected_df, username, password)
+      dlg.set_push_context(selected_df, username, password, secret)
       dlg.exec_()   ← blocking; worker runs inside dialog on its own thread
 ```
 
@@ -243,14 +324,15 @@ CALLER (MainWindow):
 Thin background worker. All device-level logic is in `device_cli_ops`.
 
 ```
-Signals:  finished(list)  — list[(df_index, result_str)]
+Signals:  finished(list)  — list of (df_index, status, output_text) tuples
           error(str)       — unhandled exception string
 
-__init__(selected_df, username, password, commands)
+__init__(selected_df, username, password, secret, commands)
     stores args
 
 run()   ← called by QThread.started signal
-    results = device_cli_ops.push_commands_all(...)
+    results = device_cli_ops.push_commands_all(
+                  selected_df, username, password, secret, commands)
     self.finished.emit(results)
     — OR —
     self.error.emit(str(e))   on exception
@@ -271,25 +353,47 @@ Signals:  finished(object, object)  — (eligible_df, valid_devices_df)
           error(str)
           progress(str)
 
-__init__(excel_file, sheet_name, username, password, mode)
+__init__(excel_file, sheet_name, username, password, secret, mode)
 
 run()
-  ├── excel_and_data_ops.load_valid_devices_df()
-  ├── _update_tracker(valid_devices_df)  ←─────────────────────────────┐
-  ├── populate_status_and_auth_status_column()                          │
-  ├── populate_restconf_status_column()     (mode='updater' only)       │  called after
-  ├── populate_scp_status_column()          (mode='updater' only)       │  every populate
-  ├── populate_current_version_column()     (mode='updater' only)       │  stage + final
-  ├── populate_flash_free_space_column()    (mode='updater' only)       │  Excel write
-  ├── populate_ios_image_path_column()      (mode='updater' only)       │
-  ├── populate_needs_update_column()        (mode='updater' only)       │
-  ├── _update_tracker(valid_devices_df)  ←─────────────────────────────┘
+  ├── excel_and_data_ops.check_excel_file_not_open()
+  │
+  ├── excel_and_data_ops.create_devices_dataframe()
+  │    handles: FILE_NOT_FOUND_ERROR, SHEET_NOT_FOUND_ERROR,
+  │             COLUMN_NOT_FOUND_ERROR, UNEXPECTED_ERROR
+  │
+  ├── excel_and_data_ops.valid_devices_dataframe()
+  │    handles: None (missing columns)
+  │             str starting with "DUPLICATE_IP_ERROR|" (duplicate IPs detected —
+  │             splits on "|" to extract detail for error dialog)
+  │             any other str (generic validation error)
+  │
+  ├── _update_tracker(valid_devices_df)   ← zeroes the Excel tracker for a fresh run
+  │
+  ├── populate_status_and_auth_status_column()
+  │
+  ├── _update_tracker(valid_devices_df)   ← persists connectivity results
+  │
+  ├── [COMMAND PUSHER early exit here]
+  │    emits finished(online_authok_df, valid_devices_df) and returns
+  │
+  ├── populate_restconf_status_column()     (mode='updater' only)
+  ├── populate_scp_status_column()          (mode='updater' only)
+  ├── populate_current_version_column()     (mode='updater' only)
+  ├── populate_needs_update_column()        (mode='updater' only)
+  ├── valid_devices_df_with_image_path()    (mode='updater' only)
+  ├── get_image_files_size()                (mode='updater' only)
+  ├── populate_flash_free_space_column()    (mode='updater' only)
+  ├── populate_enough_space_column()        (mode='updater' only)
+  │
+  ├── _update_tracker(valid_devices_df)   ← persists all scan results before eligibility filter
+  │
   └── get_eligible_devices_df()
        → self.finished.emit(eligible_df, valid_devices_df)
 
 _update_tracker(valid_devices_df)
     calls excel_and_data_ops.update_excel_tracker()
-    on any error → self.error.emit(message)  and returns False
+    on any error → self.error.emit(message)  and returns False  ← halts the scan
     returns True on success
     caller does:  if not self._update_tracker(...): return
 
@@ -313,10 +417,12 @@ Signals:  finished(str)   — final summary string
           warning(str)     — non-fatal Excel write failure
 
 __init__(excel_file, sheet_name, valid_devices_df, selected_indices,
-         username, password, transfer_mode)
+         username, password, secret, transfer_mode)
 
 run()
-  ├── PART 3: device_file_transfer_ops.scp_transfer_all()
+  ├── PART 3: device_file_transfer_ops.threaded_transfer_ios_image_all()
+  │    cancel_event forwarded — active transfers abort at next progress callback;
+  │    pending transfers are skipped before the SCP session is opened
   │    └── _update_tracker()  ──► warning.emit() on failure (non-fatal)
   ├── PART 4: device_cli_ops.install_ios_image_all()
   │    └── _update_tracker()
@@ -354,17 +460,20 @@ WIDGET TREE (static layout)
 QMainWindow (860 × 610, fixed)
  └── QWidget  centralWidget
       └── QVBoxLayout  root
-           ├── QLabel            app title
-           ├── QLabel            subtitle
+           ├── QHBoxLayout       title row
+           │    ├── QVBoxLayout  [QLabel app title + QLabel subtitle]
+           │    └── QLabel       _mode_label  (mode indicator, right-aligned)
            ├── QFrame            shimmer separator
            ├── QHBoxLayout       top row
            │    ├── QLineEdit    sheet_input  (Excel sheet name)
-           │    └── QPushButton  btn_show     "SHOW DEVICES"
-           ├── QHBoxLayout       table header row
-           │    ├── QLabel       "ELIGIBLE DEVICES"
-           │    └── QPushButton  btn_select_all  (positioned dynamically)
-           ├── QTableWidget      table  (device rows with checkboxes)
-           └── QHBoxLayout       _bottom_layout  (dynamic — rebuilt per mode)
+           │    └── QPushButton  btn_show     "SHOW ELIGIBLE DEVICES"
+           ├── QFrame            tablePanel
+           │    └── QVBoxLayout
+           │         ├── QHBoxLayout  [QLabel "ELIGIBLE DEVICES"]
+           │         ├── QFrame       scarlet separator
+           │         └── QTableWidget  table  (device rows with checkboxes)
+           │              └── QPushButton  btn_select_all  (floating over col-0 header)
+           └── QWidget           _bottom_container  (dynamic — rebuilt per mode)
                 ← UPDATER mode:        [CANCEL UPDATE]  [START UPDATE]
                 ← COMMAND PUSHER mode: [PUSH COMMANDS]
 
@@ -372,7 +481,7 @@ DYNAMIC BOTTOM BUTTONS
 ───────────────────────
 _build_bottom_buttons(mode)
     'updater'        → btn_cancel + btn_start
-    'command_pusher' → btn_push_commands
+    'command_pusher' → btn_push
     connects clicked signals
 
 _clear_bottom_buttons()
@@ -384,7 +493,6 @@ KEY METHOD INTERACTIONS
 btn_show.clicked
  └── _on_show_devices()
       ├── Credentials_and_mode_Dialog.exec_()  → stores credentials + mode
-      ├── checks Excel file not locked
       ├── _clear_bottom_buttons()
       ├── _show_loading_in_table()
       └── ShowDevicesWorker + QThread  (wires finished/error/progress)
@@ -410,7 +518,7 @@ btn_start.clicked  (UPDATER mode)
       ├── _show_loading_in_table()
       └── UpdateWorker + QThread  (wires finished/error/warning/progress)
 
-btn_push_commands.clicked  (COMMAND PUSHER mode)
+btn_push.clicked  (COMMAND PUSHER mode)
  └── _on_push_commands()
       ├── collects selected_indices from table checkboxes
       ├── builds selected_df from _valid_devices_df
@@ -421,13 +529,14 @@ TABLE HELPERS
 ─────────────
 _populate_table(eligible_df)           fills rows with device data + checkboxes
 _get_checkbox(row)                     returns QCheckBox widget for a given row
-_update_button_states()                enables/disables btn_start / btn_push_commands
+_update_button_states()                enables/disables btn_start / btn_push
                                        based on checkbox selection count
 _update_show_button_state()            enables/disables btn_show based on sheet_input content
 _toggle_select_all()                   checks/unchecks all visible checkboxes
-_on_header_clicked(col)                sorts table by column
-_distribute_columns_evenly()           spreads column widths equally
-_fit_columns_for_updater()             applies fixed widths for updater mode
+_on_header_clicked(col)                triggers _toggle_select_all() when col 0 is clicked;
+                                       ignores clicks on all other columns
+_distribute_columns_evenly()           spreads column widths equally across visible columns
+_fit_columns_for_updater()             applies proportional widths for the 4-column updater view
 _reposition_select_all()               moves btn_select_all over the checkbox column header
 
 LOADING OVERLAY
@@ -444,8 +553,11 @@ CANCEL
 ──────
 btn_cancel.clicked
  └── _on_cancel_clicked()
-      sets device_cli_ops.cancel_event
-      calls cancel_active_transfers_all() directly (not via worker)
+      ├── disables btn_cancel immediately (prevents duplicate cancel requests)
+      ├── calls _update_loading_message("Cancelling transfer...")  ← UI stays responsive
+      └── spawns daemon threading.Thread targeting cancel_active_transfers_all()
+           (blocking VTY-clear + file-delete runs off the main thread so Qt event loop is never blocked)
+           cancel_event is already set inside cancel_active_transfers_all before any SSH work begins
 ```
 
 ---
@@ -453,20 +565,24 @@ btn_cancel.clicked
 ## Signal Flow Summary
 
 ```
-USER ACTION                     MAIN THREAD                      BACKGROUND THREAD
-───────────                     ───────────                      ─────────────────
-Click SHOW DEVICES          →   ShowDevicesWorker.start()   →   run() scans devices
-                            ←   progress(str)               ←   self.progress.emit()
-                            ←   finished(df, df)            ←   self.finished.emit()
-                            ←   error(str)                  ←   self.error.emit()
+USER ACTION                     MAIN THREAD                          BACKGROUND THREAD
+───────────                     ───────────                          ─────────────────
+Click SHOW DEVICES          →   ShowDevicesWorker.start()       →   run() scans devices
+                            ←   progress(str)                   ←   self.progress.emit()
+                            ←   finished(df, df)                ←   self.finished.emit()
+                            ←   error(str)                      ←   self.error.emit()
 
-Click START UPDATE          →   UpdateWorker.start()        →   run() SCP + install
-                            ←   progress(str)               ←   self.progress.emit()
-                            ←   warning(str)                ←   self.warning.emit()   [Excel fail]
-                            ←   finished(str)               ←   self.finished.emit()
-                            ←   error(str)                  ←   self.error.emit()
+Click START UPDATE          →   UpdateWorker.start()            →   run() SCP + install
+                            ←   progress(str)                   ←   self.progress.emit()
+                            ←   warning(str)                    ←   self.warning.emit()   [Excel fail]
+                            ←   finished(str)                   ←   self.finished.emit()
+                            ←   error(str)                      ←   self.error.emit()
 
-Click PUSH in dialog        →   PushCommandsWorker.start()  →   run() push commands
-                            ←   finished(list)              ←   self.finished.emit(results)
-                            ←   error(str)                  ←   self.error.emit()
+Click CANCEL UPDATE         →   threading.Thread(daemon=True)   →   cancel_active_transfers_all()
+                                (main thread returns immediately)     VTY clear + file delete
+
+Click PUSH in dialog        →   PushCommandsWorker.start()      →   run() push commands
+                            ←   finished(list)                  ←   self.finished.emit(results)
+                                list of (index, status, output)
+                            ←   error(str)                      ←   self.error.emit()
 ```

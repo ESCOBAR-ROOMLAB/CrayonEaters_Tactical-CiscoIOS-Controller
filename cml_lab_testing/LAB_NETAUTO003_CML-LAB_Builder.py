@@ -24,6 +24,9 @@ Args (environment variables):
 Warning:
     Do NOT hardcode credentials in this file. Use environment variables
     or a .env file excluded from version control.
+
+Running
+$env:CML_USER="juanbar066@gmail.com"; $env:CML_PASS="yourpass"; python cml_lab_builder.py
 """
 
 import os
@@ -43,8 +46,8 @@ ROUTER_COUNT   = 40
 ROUTER_PREFIX  = "TEST-R"
 SWITCH_PREFIX  = "TEST-SW"
 
-ROUTER_DEF     = "iol-xe"
-SWITCH_DEF     = "ioll2-xe"
+ROUTER_DEF     = "cat8000v"
+SWITCH_DEF     = "iosvl2"
 
 # IP plan
 SUBNET         = "10.17.1"
@@ -67,7 +70,7 @@ SWITCH_X_SW02      = 100 + 7 * ROUTER_X_SPACING
 
 def build_day0(hostname: str, ip_address: str) -> str:
     """
-    Build the full day-0 startup configuration for one IOL-XE router.
+    Build the full day-0 startup configuration for one CAT8000V router.
 
     Args:
         hostname   : Device hostname string (e.g. 'TEST-R01').
@@ -91,7 +94,7 @@ def build_day0(hostname: str, ip_address: str) -> str:
         !
         crypto key generate rsa label SSH_KEY modulus 2048
         !
-        interface Ethernet0/0
+        interface G1
          description UPLINK-TO-SWITCH
          ip address {ip_address} {MASK}
          no shutdown

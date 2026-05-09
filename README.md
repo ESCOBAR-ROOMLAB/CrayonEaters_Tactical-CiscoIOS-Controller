@@ -1,8 +1,10 @@
 # Cisco Tactical Controller
 
-A PyQt5 GUI application that acts as a network controller and automates IOS-XE firmware 
-upgrades across a fleet of Cisco devices using a combination of RESTCONF (for version retrieval), 
-SSH/CLI (for SCP enablement, flash checks, install commands), and SCP (for image transfer).
+A PyQt5 GUI application that acts as a network controller and automates IOS-XE firmware
+upgrades across a fleet of Cisco devices using a combination of RESTCONF (for version retrieval),
+SSH/CLI (for pushing commands, flash checks, ...), and SCP (for image transfer).
+The tool also operates as a Command Pusher, sending arbitrary CLI commands to selected
+devices and displaying the terminal-style output per device.
 
 ---
 
@@ -17,22 +19,24 @@ SSH/CLI (for SCP enablement, flash checks, install commands), and SCP (for image
 7. [Running the Application with Python](#running-the-application-with-python)
 8. [Workflow Reference](#workflow-reference)
 9. [Logging](#logging)
-10. [Bugs & Issues Found](#bugs--issues-found)
+10. [Known Issues](#known-issues)
 
 ---
 
 ## Overview
 
-The tool can operate as a Commmand Pusher or as an Updater. It reads a device inventory from an Excel workbook, 
-connects to each device over SSH, retrieves the running IOS version via RESTCONF, compares it against a 
-recommended version stored in the sheet, and orchestrates the full install-mode upgrade 
-sequence:
+The tool operates in two modes: **Updater** and **Command Pusher**.
+
+**Updater** reads a device inventory from an Excel workbook, connects to each device over SSH,
+retrieves the running IOS version via RESTCONF, compares it against a recommended version stored
+in the sheet, and orchestrates the full install-mode upgrade sequence:
 
 ```
-SSH check → RESTCONF check → Version retrieval → Flash check →
-SCP transfer → install add → install activate → (reload) →
-install commit → install remove inactive → Excel update
+SSH check → RESTCONF check → Version retrieval → Flash check → IOS image file present check → SCP transfer → install add → install activate → (reload) → install commit → install remove inactive → Excel update
 ```
+
+**Command Pusher** sends a user-supplied list of CLI commands to all selected devices
+concurrently, and displays the terminal-style output per device with color-coded result tabs.
 
 Everything is tracked live in the Excel file so you can inspect results per device
 at any point during or after the run.
@@ -40,7 +44,7 @@ at any point during or after the run.
 ---
 
 ## Prerequisites
-
+Note that this requirements are only necessary if you are cloning this repository, not for the compiled application (.zip folder).
 ### Python
 
 Python **3.9 or later** is required.
@@ -68,11 +72,11 @@ aiohttp>=3.13.5
 
 ### Network requirements
 
-| Protocol | Port | Direction            | Purpose                              |
-|----------|------|----------------------|--------------------------------------|
-| SSH      | 22   | Controller → Device  | CLI, SCP transfer                    |
-| HTTPS    | 443  | Controller → Device  | RESTCONF version retrieval           |
-| OOBM     | —    | Out-of-band mgmt     | All connections go via OOBM IP       |
+| Protocol | Port | Direction           | Purpose                        |
+|----------|------|---------------------|--------------------------------|
+| SSH      | 22   | Controller → Device | CLI, SCP transfer              |
+| HTTPS    | 443  | Controller → Device | RESTCONF version retrieval     |
+| OOBM     | —    | Out-of-band mgmt    | All connections go via OOBM IP |
 
 SSL certificate validation is disabled (`ssl=False`) — use only on a trusted
 management network.
@@ -80,9 +84,11 @@ management network.
 ### Device requirements
 
 - Cisco IOS-XE devices in **install mode** (not bundle mode).
-- SSH enabled and reachable on the OOBM IP. 
-- RESTCONF and SCP enabled.
+- SSH enabled and reachable on the OOBM IP*
+- RESTCONF and SCP enabled*
 - Credentials must have privilege level 15 (or equivalent) to run `install` commands.
+
+*This can be completed with "COMMAND PUSHER" mode by sending the necessary commands
 
 ---
 
@@ -107,7 +113,7 @@ cisco-tactical-controller/
 │
 ├── program_gui.py                  # Entry point — PyQt5 main window and workers
 ├── excel_and_data_ops.py           # All DataFrame and Excel I/O operations
-├── device_cli_ops.py               # Netmiko SSH/CLI operations (install, cleanup)
+├── device_cli_ops.py               # Netmiko SSH/CLI operations (install, cleanup, command push)
 ├── device_api_ops.py               # aiohttp RESTCONF operations (version retrieval, polling)
 ├── device_file_transfer_ops.py     # Paramiko + SCP file transfer
 ├── ip_addressing_ops.py            # IPv4 address validation helper
@@ -134,22 +140,24 @@ The workbook must contain a sheet whose name you enter in the GUI. The sheet
 must have **all of the following columns** (order does not matter, but names
 must match exactly):
 
-| Column                            | Type     | Populated by    | Description                                                |
-|-----------------------------------|----------|-----------------|------------------------------------------------------------|
-| `Hostname`                        | Static   | You             | Device hostname, used as the lookup key                    |
-| `Model`                           | Static   | You             | Must match the subfolder name in `ios_repository/`         |
-| `OOBM IP Address`                 | Static   | You             | Management IP used for all connections                     |
-| `Recommended IOS Version`         | Static   | You             | Target version string, e.g. `17.15.4c`                     |
-| `Current IOS Version`             | Dynamic  | Tool            | Retrieved live via RESTCONF                                |
-| `Needs Update`                    | Dynamic  | Tool            | `YES` / `NO` / `UNKNOWN`                                   |
-| `Update IOS File Present`         | Dynamic  | Tool            | `YES` / `NO` / `N/A`                                       |
-| `Enough Flash Space`              | Dynamic  | Tool            | `YES` / `NO` / `UNKNOWN` / `N/A`                           |
-| `Status`                          | Dynamic  | Tool            | `ONLINE` / `OFFLINE`                                       |
-| `Auth Status`                     | Dynamic  | Tool            | `AUTH_OK` / `AUTH_BAD` / `N/A`                             |
-| `Transfer Result`                 | Dynamic  | Tool            | `SUCCESS` / `FAILED` / `N/A`                               |
-| `Install Status`                  | Dynamic  | Tool            | `INSTALL_TRIGGERED` / `ADD_FAILED` / `NOT_ATTEMPTED` / …   |
-| `Update Result`                   | Dynamic  | Tool            | `SUCCESS` / `FAILED` / `COMMIT_FAILED` / `UNKNOWN` / `N/A` |
-| `Cleaned Inactive`                | Dynamic  | Tool            | `CLEANED` / `NOTHING_TO_CLEAN` / `N/A`                     |
+| Column                    | Type    | Populated by | Description                                                     |
+|---------------------------|---------|--------------|-----------------------------------------------------------------|
+| `Hostname`                | Static  | You          | Device hostname, used as the lookup key                         |
+| `Model`                   | Static  | You          | Must match the subfolder name in `ios_repository/`              |
+| `OOBM IP Address`         | Static  | You          | Management IP used for all connections. Must be unique per row. |
+| `Recommended IOS Version` | Static  | You          | Target version string, e.g. `17.15.4c`                          |
+| `Current IOS Version`     | Dynamic | Tool         | Retrieved live via RESTCONF                                     |
+| `Needs Update`            | Dynamic | Tool         | `YES` / `NO` / `UNKNOWN`                                        |
+| `Update IOS File Present` | Dynamic | Tool         | `YES` / `NO` / `N/A`                                            |
+| `Enough Flash Space`      | Dynamic | Tool         | `YES` / `NO` / `UNKNOWN` / `N/A`                                |
+| `Status`                  | Dynamic | Tool         | `ONLINE` / `OFFLINE`                                            |
+| `Auth Status`             | Dynamic | Tool         | `AUTH_OK` / `AUTH_BAD` / `N/A`                                  |
+| `RESTCONF Status`         | Dynamic | Tool         | `OPERATIVE` / `NOT_OPERATIVE` / `N/A`                           |
+| `SCP Enabled`             | Dynamic | Tool         | `YES` / `NO` / `AUTH_BAD` / `N/A` / `UNKNOWN`                              |
+| `Transfer Result`         | Dynamic | Tool         | `SUCCESS` / `FAILED` / `N/A`                                    |
+| `Install Status`          | Dynamic | Tool         | `INSTALL_TRIGGERED` / `ADD_FAILED` / `NOT_ATTEMPTED` / …        |
+| `Update Result`           | Dynamic | Tool         | `SUCCESS` / `FAILED` / `COMMIT_FAILED` / `UNKNOWN` / `N/A`      |
+| `Cleaned Inactive`        | Dynamic | Tool         | `CLEANED` / `NOTHING_TO_CLEAN` / `N/A`/ `...`                         |
 
 All **Dynamic** columns are wiped and rewritten on every run. Do not put
 manual data in them.
@@ -157,11 +165,15 @@ manual data in them.
 > **Close the Excel file before running.** The tool checks for open file handles
 > at startup and will abort with an error if the file is locked.
 
+> **OOBM IP addresses must be unique.** The tool validates for duplicate IPs during
+> the Excel check and will abort with a descriptive error listing all conflicting entries
+> if duplicates are found.
+
 ---
 
 ## IOS Repository Setup
 
-Then `ios_repository/` folder is in the application directory. Inside it,
+The `ios_repository/` folder is in the application directory. Inside it,
 create one subfolder per device model. Some of them already exist. The subfolder name must exactly match
 the value in the `Model` column of your Excel sheet.
 
@@ -184,28 +196,28 @@ ios_repository/
 python program_gui.py
 ```
 
-### Step-by-step GUI walkthrough
+### Updater mode — step-by-step GUI walkthrough
 <br/>
 1. Enter the Excel sheet name in the text field at the top (e.g. `LAN`).
 <br/>
 <br/>
-2. Click `SHOW ELIGIBLE DEVICES`.
+2. Click SHOW ELIGIBLE DEVICES.
 <br/>
 <br/>
-3. Enter device credentials in the popup (username + password).  
+3. Enter device credentials in the popup and select UPDATER mode.
    The tool connects to all devices over SSH,
    checks versions and flash space, then populates the Excel tracker.
 <br/>
 <br/>
 4. Review the table. Only devices that pass all eligibility checks appear:
-   ONLINE, AUTH_OK, RESTCONF OPERATIVE, IOS image present locally, enough
+   ONLINE, AUTH_OK, RESTCONF OPERATIVE, SCP ENABLED, IOS image present locally, enough
    flash space, and current version differs from recommended.
 <br/>
 <br/>
-5. Select devices using the checkboxes (or click `ALL`).
+5. Select devices using the checkboxes (or click ALL).
 <br/>
 <br/>
-6. Click `START UPDATE`.
+6. Click START UPDATE.
 <br/>
 <br/>
 7. Choose the transfer mode:
@@ -220,28 +232,71 @@ python program_gui.py
 
 The `CANCEL UPDATE` button is active **only during the SCP transfer stage**.
 Clicking it:
-- Sets a global cancellation flag to prevent new transfers from starting.
-- Connects to each device and clears all VTY lines (ending the SCP session).
-- Deletes the partially transferred file from `bootflash:`.
+- Immediately updates the status label to `Cancelling transfer...` — the UI remains responsive.
+- Sets a global cancellation flag to prevent new transfers from starting and abort
+  active transfers at the next progress callback by closing the SSH transport.
+- Dispatches a daemon thread that connects to each device, clears all VTY lines
+  (terminating any lingering SCP session on the router side), and deletes the
+  partially transferred file from `bootflash:`.
+
+### Command Pusher mode — step-by-step GUI walkthrough
+<br/>
+1. Enter the Excel sheet name in the text field at the top.
+<br/>
+<br/>
+2. Click SHOW ELIGIBLE DEVICES.
+<br/>
+<br/>
+3. Enter device credentials in the popup and select COMMAND PUSHER mode.
+   The tool connects to all devices over SSH and checks reachability.
+<br/>
+<br/>
+4. Select the devices you want to target using the checkboxes.
+<br/>
+<br/>
+5. Click PUSH COMMANDS.
+<br/>
+<br/>
+6. Type the commands to push — one per line. Up to 20 commands per push.
+   Commands are treated as exec-mode. To push config-mode commands, include
+   `configure terminal` as the first line.
+<br/>
+<br/>
+7. Click PUSH. The commands are sent concurrently to all selected devices.
+<br/>
+<br/>
+8. The output phase shows a tab per device. Tabs are color-coded:
+   - Green — all commands succeeded.
+   - Amber — a command error occurred but some commands were pushed (BAD_COMMAND, CONFIG_ERROR, TIMEOUT).
+   - Red — a connection-level error occurred and no commands were pushed (AUTH_BAD, OFFLINE, SSH_ERROR, UNEXPECTED_ERROR).
+<br/>
+<br/>
+9. Click any tab to see the full terminal-style output for that device, including
+   the device prompt, every command sent, the router's response, and a list of
+   any commands that were not pushed due to an earlier error.
+<br/>
+<br/>
+10. Click PUSH MORE to return to the input phase and push a new set of commands
+    to the same set of devices.
 
 ---
 
 ## Workflow Reference
 
-| Stage | Function | Notes |
-|-------|----------|-------|
-| Enable APIs | `enable_scp_and_restconf_all` | Runs `restconf`, `ip scp server enable`, `ip http secure-server`. **Not saved** to startup-config. |
-| RESTCONF poll | `get_all_restconf_status` | Polls `/restconf` endpoint; 180 s timeout during Show, 720 s after reload. |
-| Version retrieval | `get_all_versions` | Uses `Cisco-IOS-XE-device-hardware-oper` YANG model. |
-| Flash check | `get_flash_free_space_all` | Parses `show file systems`; prefers `bootflash:` over `flash:`. |
-| SCP transfer | `threaded_transfer_ios_image_all` | Transfers to `bootflash:/`. Progress bar per device in terminal. |
-| Boot variable | `install_ios_image` (stage 1) | Pushes `boot system bootflash:packages.conf` and saves config before install commands. |
-| Install add | `install_ios_image` (stage 2) | 900 s read timeout. Detects dead peers via TCP keepalives + watchdog thread. |
-| Install activate | `install_ios_image` (stage 3) | Uses `send_multiline` to handle the `[y/n]` reload confirmation. |
-| Post-reload wait | `populate_post_install_columns` | Sleeps 6 minutes, then polls RESTCONF for up to 12 minutes. |
-| Install commit | `commit_ios_install_all` | Runs `install commit` to persist the new image. |
-| Version verify | `get_all_versions` (post-install) | Confirms running version matches recommended. |
-| Cleanup | `remove_inactive_ios_all` | Runs `install remove inactive` and auto-confirms. It also disables RESTCONF and HTTPS server.|
+| Stage                 | Function                            | Notes                                                                                                      |
+|-----------------------|-------------------------------------|------------------------------------------------------------------------------------------------------------|
+| RESTCONF poll         | `get_all_restconf_status`           | Polls `/restconf` endpoint; 30s timeout during Show, 720s after reload.                                  |
+| Version retrieval     | `get_all_versions`                  | Uses `Cisco-IOS-XE-device-hardware-oper` YANG model.                                                       |
+| Flash check           | `get_flash_free_space_all`          | Parses `show file systems`; prefers `bootflash:` over `flash:`.                                            |
+| SCP transfer          | `threaded_transfer_ios_image_all`   | Transfers to `bootflash:/`. Progress bar per device in terminal. Abortable via `cancel_event`.             |
+| Boot variable         | `install_ios_image` (stage 1)       | Pushes `boot system bootflash:packages.conf` and saves config before install commands.                     |
+| Install add           | `install_ios_image` (stage 2)       | 900s read timeout. Detects dead peers via TCP keepalives + watchdog thread.                               |
+| Install activate      | `install_ios_image` (stage 3)       | Uses `send_multiline` with a two-step command list to handle the reload confirmation prompt.                |
+| Post-reload wait      | `populate_post_install_columns`     | Sleeps 10 minutes, then polls RESTCONF for up to 12 minutes.                                                |
+| Install commit        | `commit_ios_install_all`            | Runs `install commit` to persist the new image.                                                            |
+| Version verify        | `get_all_versions` (post-install)   | Confirms running version matches recommended.                                                              |
+| Cleanup               | `remove_inactive_ios_all`           | Runs `install remove inactive` and auto-confirms. See BUG 0002 for known limitation on empty bootflash.    |
+| Command push          | `push_commands_all`                 | Sends commands concurrently. Returns terminal-style output and status per device.                |
 
 ---
 
@@ -257,15 +312,23 @@ Log format:
 
 ---
 
-## Bugs & Issues Found
-
-The following bugs and issues have been identified and are still persistent on the code.
-
----
+## Known Issues
 
 ### 🔴 BUG 0001
-When the SCP transfer is finished, there are a couple commands that need to be pushed to the devices. If a device goes offline
-during this commands push, the whole program will freeze for 15 minutes (the 'read_timeout' value) before raising an error and
-notifying the user via the GUI. The Paramiko TCP socket will be closed in time (just 70 seconds after the loss of connectivity)
-but Netmiko will still try to read the output, resulting in the GUI getting the error codes after 15 minutes. The error will be notified 
-in time in the log file.
+When the SCP transfer is finished, a set of CLI commands is pushed to each device as part of the
+install sequence. If a device goes offline during this command push, the session will hang for up
+to 15 minutes (the Netmiko `read_timeout` value) before raising an error and notifying the GUI.
+The Paramiko TCP socket is closed by the OS within ~70 seconds of connectivity loss, but Netmiko
+continues attempting to read output until the timeout expires. The error is recorded in the log
+file as soon as it occurs; only the GUI notification is delayed.
+
+
+### 🔴 BUG 0002
+`send_multiline` sends `install remove inactive` and waits for the pattern `'Do you want to remove the above files.'`
+If there's nothing to remove, IOS skips the prompt entirely and returns to the exec prompt immediately —
+the expected pattern never arrives, so `send_multiline` sits and waits for the full `read_timeout=120`
+seconds before raising a `ReadTimeout`, which gets caught as `UNEXPECTED_ERROR`. The
+`NOTHING_TO_CLEAN` check is never reached in this path. One possible fix is to use `send_command`
+for the first step, inspect the output, and only send `y` if the prompt actually appeared. However,
+results with that architecture have been failing several times due to the way Netmiko handles
+interactive prompts.
